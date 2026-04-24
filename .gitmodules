@@ -1,0 +1,3 @@
+[submodule "keeperhub"]
+	path = keeperhub
+	url = git@github.com:Dev43/keeperhub.git
