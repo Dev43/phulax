@@ -1,6 +1,6 @@
 # PHULAX 
 
-A withdraw-only agent for Ethereum yield/lending protocols (Aave, Compound, Morpho, Radiant, Pendle, etc.) that evacuates user funds when a transaction is flagged as nefarious. The detector is a model fine-tuned on 0G that classifies incoming txns as malicious or benign. Also uses other signals (subscribes to new blocks, scores each tx against the index, combines with invariant/oracle/liquidity/social signals, emits a per-protocol risk number).
+A withdraw-only agent for EVM chains yield/lending protocols (Aave, Compound, Morpho, Radiant, Pendle, etc.) that evacuates user funds when a transaction is flagged as nefarious. The detector is a model fine-tuned on 0G that classifies incoming txns as malicious or benign. Also uses other signals (subscribes to new blocks, scores each tx against the index, combines with invariant/oracle/liquidity/social signals, emits a per-protocol risk number).
 
 1) We add 0G chain to Keeperhub - the repo has an "Add Chain" skill that will help us. This should be a PR to the main chain
 2) We create a plugin or protocol (tbd on which makes the more sense) to allow people to store things and retrieve them using 0g storage
