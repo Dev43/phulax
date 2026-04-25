@@ -334,3 +334,24 @@ Parallelism: Day 2 contracts and Day 3 ML work can start in parallel on Day 1 on
 
 ## Review section
 *(filled in after each working session - what shipped, what surprised us, what to update in `STRATEGY.md`)*
+
+### 2026-04-25 — Track D, Phase 1 (stub) shipped
+
+**Shipped:**
+- `inference/server.py` — FastAPI `POST /classify` + `GET /healthz`. Returns the full real-shape response: `{p_nefarious: 0.0, tag: "stub", model_hash: "stub", input_hash, signature}`.
+- `input_hash = sha256(canonical_json(features))` — keys sorted, no whitespace. Same `features` from any caller produces the same hash; verified by test.
+- `signature = HMAC-SHA256(PHULAX_INFERENCE_HMAC_KEY, model_hash || input_hash || canonical_json(output))`. Key has no in-image default; must be supplied at runtime.
+- `inference/Dockerfile` — `python:3.11-slim`, deps pinned in `requirements.txt`. Reproducible today; Phase 2 will add a stage that fetches CIDs from `ml/artifacts.json` at build/boot and rehashes weights into `PHULAX_MODEL_HASH`.
+- `inference/test_server.py` — 4 tests, all passing: healthz, response shape, canonical-hash determinism, end-to-end signature verification with the exact HMAC payload Track E will use to verify ledger entries.
+
+**Checklist status:**
+- [x] D1. Stub endpoint live with correct response shape — Track A unblocked.
+- [ ] D2. Stack decision (llama.cpp vs FastAPI) — **tentatively FastAPI+transformers** for Phase 2 (single language with the stub, fewer moving parts), but keeping the option to swap in `llama.cpp` HTTP behind the same FastAPI proxy if CPU latency on Q4 GGUF is materially better. Will lock once we have a real merged GGUF to benchmark.
+- [ ] D3–D6 — Phase 2, blocked on Track C7 publishing CIDs in `ml/artifacts.json`.
+
+**Surprises / notes:**
+- Pydantic v2 reserves the `model_` namespace, so `model_hash` field name collides. Resolved with `ConfigDict(protected_namespaces=())` rather than renaming, because the wire shape is locked by the contract in §10.
+- Canonical JSON (sorted keys, `(",", ":")` separators) needs to be the *same* on the agent side when it independently recomputes `input_hash` for the 0G Storage Log entry. Worth flagging to Track E so we don't end up with two slightly different canonicalisers.
+- Track A integration: the workflow calls this via KeeperHub's existing **HTTP Request** system action (todo §10) — no new plugin needed. Endpoint URL + HMAC key go in workflow secrets.
+
+**For Track E (reproducibility ledger):** the agent process should be the one writing the 0G Storage Log entry per fire (`input_hash, output, model_hash, signature, weights_cid`). The inference server intentionally does *not* write the log itself — keeps it stateless and avoids double-logging.
