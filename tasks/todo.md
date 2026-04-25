@@ -334,3 +334,34 @@ Parallelism: Day 2 contracts and Day 3 ML work can start in parallel on Day 1 on
 
 ## Review section
 *(filled in after each working session - what shipped, what surprised us, what to update in `STRATEGY.md`)*
+
+### 2026-04-25 — Track A Day-1 bridge
+
+**Shipped on `keeperhub/` submodule, branch `feature/0g-integration` (5 commits, local only):**
+
+- **A1 chain seeds.** Both 0G Mainnet (16661, RPC `https://evmrpc.0g.ai`) **and** 0G Galileo Testnet (16601, RPC `https://evmrpc-testnet.0g.ai`) wired into `lib/rpc/rpc-config.ts` (`PUBLIC_RPCS.ZERO_G_*` + `CHAIN_CONFIG[16661]` + `CHAIN_CONFIG[16601]`) and `scripts/seed/seed-chains.ts` (DEFAULT_CHAINS + chainToDefaultIdMap + EXPLORER_CONFIG_TEMPLATES, Blockscout-family Chainscan). Symbol `0G`. jsonKeys `0g-mainnet` / `0g-testnet`. Mainnet shipped because `0g-compute` lets users target it from the start.
+- **A2 `plugins/0g-storage`.** Three actions: `kv-get`, `kv-put` (`maxRetries = 0`), `log-append` (`maxRetries = 0`). Implementation evolved from raw HTTP-against-indexer to **on-chain Flow-contract writes signed by the org's KeeperHub wallet (Para or Turnkey)** via a shared `client-core.ts` (`buildReadContext` / `buildWriteContext` / `writeKvEntry` / `uploadBlob`). Defaults: indexer `https://indexer-storage-testnet-turbo.0g.ai`, KV node `http://3.101.147.150:6789`, Flow contract `0x22E03a6A89B950F1c82ec5e74F8eCa321a105296` on Galileo. `requiresCredentials: false` — credentials override endpoints only. Uses `ethers` + `@0glabs/0g-ts-sdk` (the dep was added).
+- **A3 `plugins/0g-compute`.** Single action: `sealed-inference` (file `steps/inference.ts`, `maxRetries = 0`). Calls 0G's serving broker, `acknowledgeProviderSigner` + chat-completion + `processResponse` verification. Returns `{output, model, provider, chatId, verified}`. `requiresCredentials: false` (org wallet signs). Per-deployment chain-id override only.
+- **`plugin-allowlist.json`** lists `0g-storage` and `0g-compute`; `pnpm discover-plugins` regenerated types/step-registry/codegen-registry.
+- **A4 / A6 workflow skeleton.** `specs/0g-integration/per-tx-detection.workflow.json` — `Block` -> `web3/query-transactions` -> `0g-storage/kv-get` -> `code/run-code` (calls self-hosted classifier) -> `0g-storage/log-append` -> condition -> `web3/write-contract`. Address slots (`{{TODO_FAKE_LENDING_POOL_ADDRESS}}`, `env.PHULAX_*`) wait on Track B6.
+- **A5 measurement script.** `scripts/0g/measure-block-time.ts` — samples block-time, p50/p95 `eth_getBlockByNumber` latency, then probes WSS `eth_subscribe("newHeads")` stability. Env vars renamed to `CHAIN_0G_TESTNET_PRIMARY_{RPC,WSS}` to match the testnet jsonKey. **Not yet executed against testnet.**
+- **Smoke-test recipes** at `specs/0g-integration/smoke-tests.md`.
+- **A7 FEEDBACK.md** was drafted then dropped from the branch in this iteration; needs a redo against the SDK-backed implementation before the upstream PR.
+
+**Verification:** `pnpm type-check` clean. `pnpm check` (lint) blocked locally on a `minimumReleaseAge` dlx fetch for `@biomejs/biome@2.4.13` — env issue. `plugins/` is biome-ignored anyway. Defer lint reconciliation until the lockfile/registry policy is sorted.
+
+**What changed vs. the original brief:**
+- We **kept the SDK** instead of wrapping raw HTTP. §12 risk #1 budgeted half a day for SDK gaps; in practice `@0glabs/0g-ts-sdk` round-trips for both Storage Flow writes and Compute serving-broker calls, so it earned the dep slot. `client-core.ts` keeps it isolated from `"use step"` files, which is what `plugins/CLAUDE.md` actually wants (no heavy deps *inside* step files — a separate core module is fine).
+- **`requiresCredentials: false`** on both plugins, signing via the org's KeeperHub wallet. This is a much better story for the upstream PR than per-user private keys, and removes a class of secret-handling concerns from the Phulax demo. Accept as a strict improvement over the brief.
+- Mainnet (16661) seeded alongside testnet at no extra cost.
+
+**Open (still-to-verify):**
+- WSS endpoint for 0G Galileo (`CHAIN_0G_TESTNET_PRIMARY_WSS`) — not yet identified. Existing `Block` / `Event` triggers depend on `eth_subscribe` (per `keeperhub-scheduler/block-dispatcher/chain-monitor.ts:*`). If 0G testnet is HTTPS-only, the trigger won't fire and we need a polling fallback (still-open §15).
+- Block-time + RPC latency numbers — run `scripts/0g/measure-block-time.ts` once a WSS URL is known; numbers belong here.
+- Day-1 green E2E: the workflow JSON skeleton exists but hasn't been imported into a KH dev project and run against testnet. Blocks on (a) a WSS URL, (b) Track B6's deployed FakeLendingPool address.
+- Restore `keeperhub/FEEDBACK.md`, this time describing the SDK-backed shape and the org-wallet signing flow.
+
+**No upstream PR.** Per §7.5 the PR to KeeperHub `staging` opens only after the demo is recorded.
+
+**STRATEGY.md changes needed:** still none for the architecture. Worth a one-line note in §3 / §10 that 0G Storage writes go through the org's KeeperHub wallet via the Flow contract (not bearer auth), since it changes the threat-model story from "we hold a hot key" to "the workflow's signing wallet pays for the write".
+
