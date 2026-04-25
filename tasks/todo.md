@@ -403,3 +403,30 @@ Parallelism: Day 2 contracts and Day 3 ML work can start in parallel on Day 1 on
 - Track A integration: the workflow calls this via KeeperHub's existing **HTTP Request** system action (todo §10) — no new plugin needed. Endpoint URL + HMAC key go in workflow secrets.
 
 **For Track E (reproducibility ledger):** the agent process should be the one writing the 0G Storage Log entry per fire (`input_hash, output, model_hash, signature, weights_cid`). The inference server intentionally does *not* write the log itself — keeps it stateless and avoids double-logging.
+
+### 2026-04-25 — Track B contracts scaffold
+
+Shipped (all in `contracts/`):
+
+- Foundry project (`foundry.toml`, `remappings.txt`, `package.json`, `.gitignore`, `README.md`).
+- `pnpm-workspace.yaml` at repo root including `contracts/`, `agent/`, `web/`, `keeperhub`.
+- Solidity sources:
+  - `src/PhulaxAccount.sol` — `withdraw(adapter)` is the only agent-callable selector and routes hard-coded to `owner`. `setAgent`, `revokeAgent`, `setAdapter`, `execute`, `deposit` all `onlyOwner`.
+  - `src/Hub.sol` — registry + risk policy, events drive UI.
+  - `src/inft/PhulaxINFT.sol` — ERC-7857-shaped (minimal ERC-721, metadata pointer to 0G CID).
+  - `src/adapters/IAdapter.sol`, `src/adapters/FakePoolAdapter.sol`.
+  - `src/pools/IFakeLendingPool.sol`, `src/pools/FakeLendingPool.sol` — both vulns wired (open `setAssetPrice`, CEI-violating `withdraw`). Aave-shape `Supply`/`Borrow`/`Withdraw` events. Not in `keeperhub/protocols/`.
+- Tests:
+  - `test/PhulaxAccount.fuzz.t.sol` — `testFuzz_withdrawAlwaysToOwner` over fuzzed caller/recipient/payout; `test_agentCanOnlyCallWithdraw` checks each non-`withdraw` selector reverts with `NotOwner` when called by the agent.
+  - `test/PhulaxAccount.invariant.t.sol` — invariant fuzz: no non-owner ever holds the asset.
+  - `test/ExploitReplay.t.sol` — drain succeeds and victim withdraw reverts when Phulax absent; agent firing first recovers ≥99% of principal.
+- `script/Deploy.s.sol` — deploys Hub, INFT, FakeLendingPool, optional adapter+account; targets 0G testnet via `foundry.toml` `[rpc_endpoints]` + `[etherscan]` blocks.
+- `scripts/extract-abis.mjs` — emits `abis/*.json` paste-in fallback for KeeperHub `abi-with-auto-fetch`.
+- `wagmi.config.ts` — outputs typed ABIs at `generated/wagmi.ts` for Tracks E and F.
+
+Not run: `forge install`, `forge build`, `forge test`, `forge script` — Foundry isn't installed in the sandbox and the `curl | bash` install was denied. First action when Foundry is available locally: `forge install foundry-rs/forge-std OpenZeppelin/openzeppelin-contracts && forge test -vv`.
+
+Surprises:
+
+- KeeperHub `web3/query-transactions` (per `tasks/todo.md` §7.1, §7.4) decodes calldata, so the only thing the demo pool *must* preserve are Aave-shape event topics — easy. No need to touch any KeeperHub plugin from this track.
+- `forge install foundry-rs/forge-std OpenZeppelin/openzeppelin-contracts` is the only external dep; OZ v5 `_requireOwned` is the right shape for `tokenURI` now (used in `PhulaxINFT`).
