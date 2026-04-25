@@ -334,3 +334,21 @@ Parallelism: Day 2 contracts and Day 3 ML work can start in parallel on Day 1 on
 
 ## Review section
 *(filled in after each working session - what shipped, what surprised us, what to update in `STRATEGY.md`)*
+
+### 2026-04-25 — Track F (web/) Phase 1: static mock
+
+**Shipped** (F1 + F2 of `tasks/agents/track-f-web.md`):
+- Scaffolded `web/` as a standalone Next.js 14 App Router app (Tailwind, shadcn-style primitives in `components/ui/`, wagmi v2 + viem + react-query providers, 0G testnet chain wired with injected connector).
+- One-screen dashboard at `app/page.tsx`: connect bar (PhulaxAccount + position), deposit/withdraw card (stubs), live risk gauge with threshold marker + per-signal weights, terminal-styled streaming log panel, FP-feedback toggle, incident timeline.
+- Fake stream lives in `lib/mock.ts`. A `setInterval` on the client pushes ~1 event/sec, plus a "Demo: simulate attack" button that drops the canonical FIRE sequence (invariant violation → vector match → classifier → aggregator → KeeperHub exec → receipt) into the log and prepends an incident.
+- `pnpm install` clean, `pnpm type-check` clean, `pnpm build` succeeds, `pnpm dev` serves 200 with all five panel headings rendered in SSR HTML.
+
+**Surprises:**
+- `wagmi/connectors` is a barrel that pulls the MetaMask SDK + WalletConnect / pino-pretty modules even when you only use `injected()`. Build emits non-fatal "Module not found" warnings for `@react-native-async-storage/async-storage` and `pino-pretty`. Standard wagmi v2 noise; left as-is.
+- Worktree had no root `package.json` / `pnpm-workspace.yaml` yet, so `web/` is currently a standalone pnpm project. When the monorepo lands (todo §4), `web/` slots in as a workspace member with no code changes.
+
+**Deferred to Phase 2** (after Track B6 deploys + B8 emits ABIs): F3 wallet/account reads via generated `wagmi.config.ts`, F4 deposit/withdraw wired to `PhulaxAccount`.
+
+**Deferred to Phase 3** (after Track E7 ships SSE): F5 real `/stream` EventSource, F6 `/incidents/:account` proxy, F8 `POST /feedback` from the toggle. Swap-points are commented in `app/page.tsx` and `components/feedback-toggle.tsx`.
+
+**Nothing to change in `STRATEGY.md`** — §8 ("no fancy frontend") and §6 (demo script) match what's built. The streaming log panel is the credibility moment per todo §8.
