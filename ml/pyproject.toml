@@ -13,7 +13,6 @@ dependencies = [
     "safetensors>=0.4",
     "numpy>=1.26",
     "pydantic>=2.7",
-    "httpx>=0.27",
     "python-dotenv>=1.0",
     "rich>=13.7",
     "scikit-learn>=1.5",

@@ -17,20 +17,39 @@ Python is sandboxed here per the one-language rule (`CLAUDE.md`, `tasks/todo.md`
 ```bash
 cd ml
 uv sync
-uv run python -m data.build_dataset           # → data/dataset.jsonl
+(cd scripts && pnpm install)                   # one-time: 0G Node helper deps
+uv run python -m data.build_dataset            # → data/dataset.jsonl
 uv run python -m finetune.lora                 # → artifacts/lora/
 uv run python -m finetune.merge_and_quantize   # → artifacts/merged/{,*.gguf}
 uv run python -m eval.harness                  # → eval/REPORT.md
-uv run python -m embed.index                   # → 0G Storage KV
+uv run python -m embed.index                   # → 0G Storage KV (one Flow tx)
 uv run python -m upload.og_storage             # → artifacts.json
 ```
+
+## How we talk to 0G Storage
+
+0G Storage is **not** an HTTP REST server. KV writes are on-chain Flow
+transactions submitted through `@0gfoundation/0g-ts-sdk`; reads pull a blob
+from the Indexer at `${indexerUrl}/file?root=<rootHash>` and decode the
+StreamData wire format. This matches `keeperhub/plugins/0g-storage/` exactly.
+
+There is no Python SDK, so `og_client.py` shells out to `scripts/og.mjs`, a
+small Node helper that uses the same SDK + a plain ethers signer (the
+keeperhub plugin signs through Para; we sign with `OG_PRIVATE_KEY` so the
+offline pipeline can run without a KeeperHub workflow). `embed/index.py`
+batches every exploit into one `Batcher.exec()` call, so the corpus costs one
+Flow tx, not N.
 
 ## Environment
 
 Set in `.env` (see `.env.example`):
 
-- `OG_STORAGE_ENDPOINT` — KV/Log HTTP endpoint
-- `OG_STORAGE_TOKEN` — bearer for the above
+- `OG_PRIVATE_KEY` — funded wallet that pays gas for Flow transactions
+- `OG_RPC_URL` — 0G EVM RPC (Galileo testnet by default)
+- `OG_INDEXER_URL` — 0G storage indexer (testnet turbo by default)
+- `OG_FLOW_ADDRESS` — Flow contract address (Galileo testnet by default)
+- `OG_CHAIN_ID` — 0G chain id (16602 = Galileo testnet, 16661 = mainnet)
+- `OG_EXPLOIT_STREAM_ID` — optional 32-byte hex stream id for `embed/index.py`
 - `OG_FT_ENDPOINT` / `OG_FT_TOKEN` — 0G fine-tuning surface (optional; falls back to local LoRA training)
 - `LLAMA_CPP_DIR` — path to a built `llama.cpp` checkout (for GGUF conversion + quantization)
 

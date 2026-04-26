@@ -1,0 +1,14 @@
+{
+  "name": "phulax-ml-og-helper",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Node helper that lets the Python ml/ pipeline talk to 0G Storage via @0gfoundation/0g-ts-sdk. 0G Storage is not an HTTP REST server: KV writes are on-chain Flow transactions and reads pull a blob from the Indexer.",
+  "bin": {
+    "phulax-og": "./og.mjs"
+  },
+  "dependencies": {
+    "@0gfoundation/0g-ts-sdk": "^0.5.0",
+    "ethers": "^6.13.0"
+  }
+}
