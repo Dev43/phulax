@@ -487,3 +487,28 @@ Surprises:
 
 - KeeperHub `web3/query-transactions` (per `tasks/todo.md` §7.1, §7.4) decodes calldata, so the only thing the demo pool *must* preserve are Aave-shape event topics — easy. No need to touch any KeeperHub plugin from this track.
 - `forge install foundry-rs/forge-std OpenZeppelin/openzeppelin-contracts` is the only external dep; OZ v5 `_requireOwned` is the right shape for `tokenURI` now (used in `PhulaxINFT`).
+
+### 2026-04-25 — Cross-track status snapshot
+
+All six tracks (A keeperhub-0g, B contracts, C ml, D inference, E agent, F web) have landed Phase-1 scaffolds locally. The pieces are independently green (typecheck / unit tests where applicable), but **nothing has been wired end-to-end on 0G testnet yet**. What stands between us and a recorded demo:
+
+**Hard blockers (must land before E2E)**
+1. **0G Galileo WSS endpoint** — Track A's `Block` trigger depends on `eth_subscribe("newHeads")`. URL still unknown (§15, A-review). If WSS isn't available, drop in a polling `chain-monitor` fallback before A5 measurements can run.
+2. **`forge install` + deploy** — Track B's contracts are unbuilt; need Foundry locally, then `forge script Deploy.s.sol --rpc-url 0g_testnet --broadcast` to get FakeLendingPool / Hub / PhulaxAccount addresses. Those addresses unblock Track A workflow JSON (`{{TODO_FAKE_LENDING_POOL_ADDRESS}}`) and Track F Phase 2.
+3. **LoRA fine-tune run** — Track C is fully scripted but needs either `OG_FT_ENDPOINT` credentials or a GPU box; until it runs, no `eval/REPORT.md`, no merged weights CID, no Track D Phase 2.
+
+**Sequenced follow-on work**
+4. Track D Phase 2: swap stub for real merged weights once Track C publishes `ml/artifacts.json`. Bench Q4 GGUF latency on the target Fly/Railway instance to lock the FastAPI-vs-llama.cpp decision (D2).
+5. Track E ABI swap: replace hand-rolled `FakeLendingPool` ABI with Track B's `generated/wagmi.ts` (single-file change, noted in E review).
+6. Track A end-of-day E2E: import `per-tx-detection.workflow.json` into a KH dev project, fill in deployed addresses + inference URL + HMAC, fire one synthetic block, confirm KV read + classifier call + log-append + (optional) `write-contract`.
+7. Track F Phase 2 + 3: wire wallet/account reads (post-B8) and real SSE `/stream` (post-E7).
+8. Restore `keeperhub/FEEDBACK.md` against the SDK-backed shape; queue upstream PR for **after** the demo recording (per §7.5).
+
+**Demo-script gaps** (STRATEGY §6 / todo §8)
+- Twitter scraper (Day-4 tiebreaker) — not started; defer unless time permits.
+- Demo video + README polish — last-day work.
+- Mint flow for `PhulaxINFT` — contract exists, but no script wires `mint(owner, cid)` against the published `ml/artifacts.json` CIDs yet.
+
+**Threat-model line to add to STRATEGY.md** (per Track A review): 0G Storage writes are signed by the org's KeeperHub wallet via the Flow contract on Galileo (`0x22E0…5296`), not bearer auth. Changes the hot-key story from "we hold one" to "the workflow's signing wallet pays for the write" — strictly better for the pitch.
+
+**No code changes in this entry** — pure status synthesis to make the next session's first move obvious.
