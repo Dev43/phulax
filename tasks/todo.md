@@ -512,3 +512,109 @@ All six tracks (A keeperhub-0g, B contracts, C ml, D inference, E agent, F web) 
 **Threat-model line to add to STRATEGY.md** (per Track A review): 0G Storage writes are signed by the org's KeeperHub wallet via the Flow contract on Galileo (`0x22E0…5296`), not bearer auth. Changes the hot-key story from "we hold one" to "the workflow's signing wallet pays for the write" — strictly better for the pitch.
 
 **No code changes in this entry** — pure status synthesis to make the next session's first move obvious.
+
+### 2026-04-26 — Foundry installed; first `forge test` exposes Track B bugs
+
+**Setup:**
+- Installed Foundry locally (`forge 1.5.1-stable`, commit `b0a9dd9`).
+- `forge install --no-git foundry-rs/forge-std OpenZeppelin/openzeppelin-contracts` (no-git because we're inside a `.dmux` git worktree where submodule pathspec resolution fails — vendored under `contracts/lib/` instead).
+- `forge build` clean: 0 errors, only `screaming-snake-case-immutable` style notes (cosmetic).
+
+**`forge test -vv` results — 3 pass / 2 fail:**
+
+✅ `PhulaxAccount.fuzz.t.sol::testFuzz_withdrawAlwaysToOwner` — 512 fuzz runs, owner-only recipient invariant holds.
+✅ `PhulaxAccount.fuzz.t.sol::test_agentCanOnlyCallWithdraw` — every non-`withdraw` selector reverts `NotOwner` from agent.
+✅ `PhulaxAccount.invariant.t.sol::invariant_withdrawAlwaysToOwner` — 512 runs / 256 000 calls / 0 reverts.
+
+❌ `ExploitReplay.t.sol::test_exploit_agentFiresFirst_recovers99pct` — `FakeLendingPool::withdraw` reverts `"exceeds balance"`.
+   - **Root cause: bookkeeping key mismatch.** `FakePoolAdapter.deposit` calls `pool.supply(asset, amount, onBehalfOf = msg.sender = PhulaxAccount)` (`FakePoolAdapter.sol:29`), so `supplied[PhulaxAccount][asset]` holds the position. But `pool.withdraw` decrements `supplied[msg.sender][asset]` (`FakeLendingPool.sol:69`), and `msg.sender` at withdraw time is the adapter, not the PhulaxAccount. Adapter's `supplied` slot is 0, so the require trips.
+   - **Fix options (Track B owner to pick):**
+     1. Add `onBehalfOf`/`from` parameter to `pool.withdraw` (Aave V3 doesn't, but our pool already deviates), with an auth map so PhulaxAccount can pre-authorize the adapter.
+     2. Have the adapter own the supplied position: change `FakePoolAdapter.deposit` to `pool.supply(..., onBehalfOf = address(this))`, read `pool.balanceOf(asset, address(this))` in `withdrawAll`. Implies one adapter instance per user (acceptable for the demo since `setAdapter` is per-account).
+     3. Skip the adapter for withdraw and have `PhulaxAccount.withdraw` call `pool.withdraw` directly. Breaks the `IAdapter` shape — not recommended.
+
+❌ `ExploitReplay.t.sol::test_exploit_drainSucceedsWithoutPhulax` — `pool.borrow` reverts `"undercollateralised"`.
+   - **Root cause: single-asset oracle exploit is mathematically a no-op.** The collateral check (`FakeLendingPool.sol:54`) computes both `collateralValue = supplied * price / 1e18` *and* `borrowedValue + amount * price / 1e18` against the same `price[asset]`. Inflating price scales numerator and denominator equally, so the inequality is unchanged. Attacker has 1 USD of collateral; can never borrow more than 0.8 USD regardless of oracle.
+   - **Fix options (Track B owner to pick):**
+     1. **Two-asset world** (recommended): mint a separate `WETH` mock, have the attacker supply WETH as collateral, borrow USD against it. Inflate WETH's price → collateral value spikes while USD borrow side stays denominated in USD. Matches real oracle-manipulation drains and gives the demo two-asset realism.
+     2. **Asymmetric pricing**: treat the borrow amount as raw token units (don't multiply by `price`), and only oracle-price the collateral. Cheaper, but less realistic.
+
+**What this means for status:**
+- Foundry plumbing is unblocked: builds, runs, fuzzer + invariant happy paths verified across ~256 500 randomized calls. The strongest invariant in the system (`PhulaxAccount` cannot pay non-owner) is now empirically validated.
+- The exploit-replay narrative — the *demo* — is currently broken. Track B needs the two fixes above before deployment. Until then, the agent has nothing meaningful to defend against in tests.
+- No 0G testnet deploy yet; that step now sequences after the Track B fixes (no point deploying contracts whose demo path doesn't execute).
+
+**Files touched this session:** none. Only `contracts/lib/` populated by `forge install`. `checklist.md` updated to record the result.
+
+**Next move for Track B owner:** pick fix option 2 for the bookkeeping bug + fix option 1 for the oracle drain. Estimated <1h. After that, re-run `forge test -vv`, then move to `forge script Deploy.s.sol --broadcast`.
+
+### 2026-04-26 — Track B fixes + green test suite
+
+**Shipped (all 5 tests now PASS):**
+
+- `contracts/src/adapters/FakePoolAdapter.sol` — adapter is now the supplier of record at the pool. `pool.supply(..., onBehalfOf = address(this))` + per-PhulaxAccount internal `_supplied` mapping (incremented on `deposit`, zeroed on `withdrawAll`). `withdrawAll` calls `pool.withdraw(asset, bal, msg.sender)` so the underlying lands on the calling PhulaxAccount, which then sweeps to owner per existing `PhulaxAccount.withdraw` flow.
+- `contracts/src/pools/FakeLendingPool.sol` — `borrow` now uses **asymmetric pricing**: collateral side is oracle-priced, borrow amount is treated as token units. Inflating `price[asset]` scales collateral up while leaving the borrow side fixed, which is what makes single-asset oracle-manipulation drains land. Comment explicitly calls out the Mango/Cream parallel to head off "is this a real exploit shape" pushback during demo.
+- `contracts/test/ExploitReplay.t.sol` — one-line update: `victimSupplied` now reads from `adapter.balanceOf(acct)` instead of `pool.balanceOf(usd, acct)`. Reflects the new ownership model where the adapter holds the position at the pool layer.
+
+**`forge test -vv` final result:** 5/5 pass.
+- `PhulaxAccount.fuzz` — 512 runs, owner-only recipient invariant holds.
+- `test_agentCanOnlyCallWithdraw` — agent can't reach any non-`withdraw` selector.
+- `PhulaxAccount.invariant` — 512 runs / 256 000 calls / 0 reverts.
+- `test_exploit_drainSucceedsWithoutPhulax` — attacker drains 99% of pool reserves, victim's withdraw reverts, principal stuck.
+- `test_exploit_agentFiresFirst_recovers99pct` — agent fires first, victim recovers ≥99% of principal, attacker's follow-up borrow fails.
+
+**Design knock-on:** the adapter→pool ownership change has a property worth noting for Track E. The detection pipeline reads pool state via viem; `pool.balanceOf(asset, user)` for a Phulax-protected user now returns 0 (because the adapter owns the position). Anything in `agent/src/detection/hydrate.ts` that wants "this user's pool position" must read `adapter.balanceOf(account)` instead. Phulax's `PhulaxAccount.deposit/withdraw` flows are unchanged.
+
+**Proposed additional exploits to demo** (waiting on owner OK before implementing — see `checklist.md` "Proposed additional exploits" section). Recommendation: do A (reentrancy) + B (flash-loan oracle), skip C/D unless time permits. Together A+B cover three distinct detection signals (reentrancy invariant violation, huge in-block balance delta, oracle deviation magnification) and exercise three of the four pipeline tiers without overhauling the pool design.
+
+**Files touched this session:** `contracts/src/adapters/FakePoolAdapter.sol`, `contracts/src/pools/FakeLendingPool.sol`, `contracts/test/ExploitReplay.t.sol`. `checklist.md` updated.
+
+### 2026-04-26 — Track B exploit suite expanded to five vulns / 11 tests
+
+**Shipped — pool now has five intentional vulns, each backed by a working drain test:**
+
+| # | Vuln                          | Test file (added this session)         | Pool addition                                  |
+|---|-------------------------------|----------------------------------------|------------------------------------------------|
+| 1 | Open-oracle borrow drain      | `ExploitReplay.t.sol` (existing)       | (existing — `setAssetPrice` open)              |
+| 2 | Reentrancy via hook-token     | `ExploitReentrancy.t.sol`              | (existing CEI violation in `withdraw`)         |
+| 3 | Flash-loan amplified drain    | `ExploitFlashLoan.t.sol`               | (none in pool — separate `FlashLender` mock)   |
+| 4 | Liquidation via oracle crash  | `ExploitLiquidation.t.sol`             | new `liquidate(user, asset)`                   |
+| 5 | Admin reserve sweep           | `ExploitAdminRug.t.sol`                | new `withdrawReserves(asset, to)` admin-only   |
+
+**Pool / interface changes:**
+- `FakeLendingPool` gained `LIQUIDATION_THRESHOLD_BPS = 8500`, `admin` (set in constructor to `msg.sender`), `liquidate`, `withdrawReserves`, and a `borrowedOf` view. Custom errors: `NotAdmin`, `NoDebt`, `Healthy`.
+- `IFakeLendingPool` extended to match — the new `liquidate` and `withdrawReserves` selectors are part of the official surface so KeeperHub `web3/query-transactions` decoding picks them up automatically (no ABI overrides needed).
+- New events: `Liquidate(reserve, user, liquidator, seized, repaid)`, `ReservesSwept(reserve, by, to, amount)`. Standard Aave-shape topic ordering, indexed in three slots so KeeperHub log filters can match by reserve / user / liquidator.
+
+**Test infra added (under `contracts/test/mocks/`):**
+- `MockHookToken` — ERC20 + ERC777-style `tokensReceived` callback on the destination address. Hook is best-effort (`try/catch`) so a reverting receiver doesn't brick transfers. Used by `ExploitReentrancy`.
+- `FlashLender` — separate flash-loan source. Holds asset reserves, lends with no fee, requires balance-restored invariant. Has to be separate from `FakeLendingPool` because the lending pool itself is the drain target during the callback — using the pool as both source and target would violate the lender's balance-restored check.
+
+**Test details worth flagging:**
+
+- `ExploitReentrancy::test_exploit_reentrancyDrainsTwiceTheSupply` — attacker supplies 50 hookTokens, calls `attack(50)` once. The hook fires inside `pool.withdraw`'s `safeTransfer` leg, attacker's `onTokensReceived` re-enters `pool.withdraw` while `supplied[attacker]` is still un-decremented, second withdraw also passes the require, drains another 50. Final state: attacker EOA holds 100 tokens, pool reserves are 50, victim's bookkeeping still says 100 supplied — pool insolvent.
+- `ExploitFlashLoan::test_exploit_flashLoanZeroCapitalDrain` — attacker EOA starts with 0 capital, ends with 100e18. Flow: borrow 500e18 from `FlashLender` → supply 1e18 dust to pool → `setAssetPrice` to 1e24 → borrow pool's full 101e18 reserves → repay 500e18 to lender → forward residual to attacker EOA. Dust must be `1e18`, not `1 wei`: with `inflatedPrice = 1e24` and CF = 80%, `1e18 * 1e24 / 1e18 * 0.8 = 8e23` of borrow capacity (way more than any plausible pool); `1 wei` only yields `1e6` capacity which fails the require.
+- `ExploitLiquidation` has a guard test (`test_position_isHealthyAtFairPrice` — liquidate reverts with `Healthy` selector at price 1e18) plus the drain test (price drops to 0.4e18, attacker pays 50, seizes 100 collateral). Liquidator's profit is the spread between depressed-oracle price and real-market value of seized tokens — same shape as Solend.
+- `ExploitAdminRug` includes a guard test (`test_nonAdmin_cannotSweepReserves` — reverts with `NotAdmin`) plus the drain (admin sweeps pool reserves to attacker, supplier's later withdraw reverts).
+
+**`forge test -vv` final result:** 11/11 across 7 suites.
+
+**Surprises:**
+- Initial reentrancy test asserted on the EOA (`ATTACKER`) but the loot landed on the attacker *contract*. Fix: `ReentrancyAttacker.attack` now forwards its post-drain balance to `msg.sender` (test calls under `vm.prank(ATTACKER)`). Same pattern is now reusable for any future on-chain attacker fixture.
+- Initial flash-loan test used `1 wei` of dust collateral and tripped the `borrow` require. Took one debug pass to realise the asymmetric pricing means dust collateral has to clear `borrow_amount * 1e18 * 10000 / (price * 8000)` token-units. With reserves of 100e18 and price of 1e24, dust must be `≥ 1.25e23 / 1e24 ≈ 0.125e0` — 1 token (1e18 wei) is the natural choice.
+- `MockHookToken._update` had to use `try/catch` around the receiver call. Without it, any non-implementing recipient (e.g. `FakeLendingPool` itself when supply transfers tokens to the pool) would brick the transfer.
+
+**Detection-pipeline implications for Track E:**
+- `agent/test/fixtures/exploits.ts` currently has 7 fixtures, all variants of vuln #1 (oracle borrow drain). To prove the agent generalises, need ~4 more fixtures — one per new vuln. Each fixture is a `TxContext` shape, replayable through the pure `detect()` function.
+- Detection-tier mapping (use to write the fixtures):
+  - **Vuln #2 (reentrancy):** invariant tier — sum of `Transfer` event amounts in the tx exceeds `supplied[user]` immediately before the tx. Pure check from chain-state snapshot.
+  - **Vuln #3 (flash-loan drain):** vector tier — calldata-fingerprint similarity to known flash-loan exploit shapes (cosine ≥ 0.85 against the `ml/embed/index.ts` corpus). Also fires the oracle tier on the in-tx `setAssetPrice` event.
+  - **Vuln #4 (oracle crash + liquidate):** oracle tier in the *inverse* direction (negative deviation) + classifier tier (the `liquidate(address,address)` selector with a fresh-price-write in the same tx is a strong fingerprint).
+  - **Vuln #5 (admin rug):** classifier tier — `withdrawReserves(address,address)` selector + recipient that's neither the user-known treasury nor a previously-interacted contract. Not catchable by invariants alone since the math is consistent; this is the case that justifies keeping the classifier in the pipeline at all.
+
+**Files touched this session:**
+- Modified: `contracts/src/pools/FakeLendingPool.sol`, `contracts/src/pools/IFakeLendingPool.sol`.
+- Added: `contracts/test/mocks/MockHookToken.sol`, `contracts/test/mocks/FlashLender.sol`, `contracts/test/ExploitReentrancy.t.sol`, `contracts/test/ExploitFlashLoan.t.sol`, `contracts/test/ExploitLiquidation.t.sol`, `contracts/test/ExploitAdminRug.t.sol`.
+- Updated: `checklist.md` (demo coverage matrix replaces the proposed-exploits menu).
+
+**Strategy.md note:** §2(a) lists detection signals abstractly. Worth tightening to reference the five-vuln matrix directly — gives the reader an unambiguous read on what the agent actually defends against. Defer until the demo is recorded so we don't churn the doc twice.
