@@ -29,10 +29,10 @@ Fully offline. Independent of every other track. Outputs (CIDs on 0G Storage) fe
 > When you finish a chunk, append to the Review section of `tasks/todo.md`. If the user corrects you, update `tasks/lessons.md`.
 
 ## Checklist
-- [ ] C1. Dataset curated (~200 rows, schema as above)
-- [ ] C2. Prompt template fixed and committed
-- [ ] C3. LoRA fine-tune complete on 0G fine-tuning surface
-- [ ] C4. Merged weights (safetensors + Q4 GGUF) produced
-- [ ] C5. Embeddings indexed in 0G Storage KV
-- [ ] C6. Eval harness + REPORT.md hitting ≥0.8 P / ≥0.6 R (or fallback documented)
-- [ ] C7. Artifacts uploaded to 0G Storage; `ml/artifacts.json` manifest published
+- [x] C1. Dataset curated (210 rows = 60 RISK + 150 SAFE; `ml/data/build_dataset.py`)
+- [x] C2. Prompt template fixed and committed (`ml/prompt/template.py`, v1.0.0)
+- [ ] C3. LoRA fine-tune complete on 0G fine-tuning surface — *script ready (`ml/finetune/lora.py`); needs `OG_FT_ENDPOINT` or GPU to execute*
+- [ ] C4. Merged weights (safetensors + Q4 GGUF) produced — *script ready (`ml/finetune/merge_and_quantize.py`); needs C3 + `LLAMA_CPP_DIR`*
+- [ ] C5. Embeddings indexed in 0G Storage KV — *script ready (`ml/embed/index.py`); needs `OG_STORAGE_ENDPOINT`*
+- [ ] C6. Eval harness + REPORT.md hitting ≥0.8 P / ≥0.6 R — *harness ready (`ml/eval/harness.py`); REPORT.md generated on first eval run*
+- [ ] C7. Artifacts uploaded to 0G Storage; `ml/artifacts.json` manifest published — *uploader ready (`ml/upload/og_storage.py`); needs C3+C4+C6 outputs and 0G credentials*

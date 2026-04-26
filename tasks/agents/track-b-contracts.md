@@ -30,11 +30,11 @@ Independent of Track A. Can start immediately. Output ABIs unblock Tracks E and 
 > When you finish a chunk, append to the Review section of `tasks/todo.md`. If the user corrects you, update `tasks/lessons.md`. Do not push branches or open PRs without explicit user confirmation.
 
 ## Checklist
-- [ ] B1. Foundry scaffold + workspace entry
-- [ ] B2. `IAdapter.sol`, `FakePoolAdapter.sol`
-- [ ] B3. `FakeLendingPool.sol` with the two intentional vulns + Aave-shape events
-- [ ] B4. `PhulaxAccount.sol` — hard-coded owner recipient, agent-selector restricted
-- [ ] B5. `Hub.sol`, `PhulaxINFT.sol` (ERC-7857 or shaped fallback)
-- [ ] B6. Deploy + verify on 0G testnet, ABI fallback files
-- [ ] B7. Forge fuzz + exploit-replay tests green
-- [ ] B8. `wagmi.config.ts` outputs ready for Tracks E and F
+- [x] B1. Foundry scaffold + workspace entry
+- [x] B2. `IAdapter.sol`, `FakePoolAdapter.sol`
+- [x] B3. `FakeLendingPool.sol` with the two intentional vulns + Aave-shape events
+- [x] B4. `PhulaxAccount.sol` — hard-coded owner recipient, agent-selector restricted
+- [x] B5. `Hub.sol`, `PhulaxINFT.sol` (ERC-7857 or shaped fallback)
+- [~] B6. Deploy + verify on 0G testnet, ABI fallback files (script + extractor written; not run — needs forge installed locally and 0G env vars)
+- [~] B7. Forge fuzz + exploit-replay tests green (tests written; not executed — `forge` unavailable in this sandbox)
+- [x] B8. `wagmi.config.ts` outputs ready for Tracks E and F

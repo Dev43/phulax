@@ -1,0 +1,16 @@
+{
+  "name": "@phulax/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "build": "forge build",
+    "test": "forge test -vv",
+    "fuzz": "forge test --match-test invariant -vv",
+    "deploy:zerog": "forge script script/Deploy.s.sol:Deploy --rpc-url zerog_testnet --broadcast --verify",
+    "abis": "forge build && node ./scripts/extract-abis.mjs",
+    "wagmi": "wagmi generate"
+  },
+  "devDependencies": {
+    "@wagmi/cli": "^2.1.18"
+  }
+}
