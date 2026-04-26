@@ -366,3 +366,98 @@ Parallelism: Day 2 contracts and Day 3 ML work can start in parallel on Day 1 on
 - Track D should `import` from `ml/prompt/template.py` (or re-implement byte-for-byte against `TEMPLATE_VERSION`) to avoid skew.
 - `ml/artifacts.json` (once populated) is the single source of CIDs for Track D and the iNFT `classifier_pointer`.
 
+### 2026-04-25 — Track A Day-1 bridge
+
+**Shipped on `keeperhub/` submodule, branch `feature/0g-integration` (5 commits, local only):**
+
+- **A1 chain seeds.** Both 0G Mainnet (16661, RPC `https://evmrpc.0g.ai`) **and** 0G Galileo Testnet (16601, RPC `https://evmrpc-testnet.0g.ai`) wired into `lib/rpc/rpc-config.ts` (`PUBLIC_RPCS.ZERO_G_*` + `CHAIN_CONFIG[16661]` + `CHAIN_CONFIG[16601]`) and `scripts/seed/seed-chains.ts` (DEFAULT_CHAINS + chainToDefaultIdMap + EXPLORER_CONFIG_TEMPLATES, Blockscout-family Chainscan). Symbol `0G`. jsonKeys `0g-mainnet` / `0g-testnet`. Mainnet shipped because `0g-compute` lets users target it from the start.
+- **A2 `plugins/0g-storage`.** Three actions: `kv-get`, `kv-put` (`maxRetries = 0`), `log-append` (`maxRetries = 0`). Implementation evolved from raw HTTP-against-indexer to **on-chain Flow-contract writes signed by the org's KeeperHub wallet (Para or Turnkey)** via a shared `client-core.ts` (`buildReadContext` / `buildWriteContext` / `writeKvEntry` / `uploadBlob`). Defaults: indexer `https://indexer-storage-testnet-turbo.0g.ai`, KV node `http://3.101.147.150:6789`, Flow contract `0x22E03a6A89B950F1c82ec5e74F8eCa321a105296` on Galileo. `requiresCredentials: false` — credentials override endpoints only. Uses `ethers` + `@0glabs/0g-ts-sdk` (the dep was added).
+- **A3 `plugins/0g-compute`.** Single action: `sealed-inference` (file `steps/inference.ts`, `maxRetries = 0`). Calls 0G's serving broker, `acknowledgeProviderSigner` + chat-completion + `processResponse` verification. Returns `{output, model, provider, chatId, verified}`. `requiresCredentials: false` (org wallet signs). Per-deployment chain-id override only.
+- **`plugin-allowlist.json`** lists `0g-storage` and `0g-compute`; `pnpm discover-plugins` regenerated types/step-registry/codegen-registry.
+- **A4 / A6 workflow skeleton.** `specs/0g-integration/per-tx-detection.workflow.json` — `Block` -> `web3/query-transactions` -> `0g-storage/kv-get` -> `code/run-code` (calls self-hosted classifier) -> `0g-storage/log-append` -> condition -> `web3/write-contract`. Address slots (`{{TODO_FAKE_LENDING_POOL_ADDRESS}}`, `env.PHULAX_*`) wait on Track B6.
+- **A5 measurement script.** `scripts/0g/measure-block-time.ts` — samples block-time, p50/p95 `eth_getBlockByNumber` latency, then probes WSS `eth_subscribe("newHeads")` stability. Env vars renamed to `CHAIN_0G_TESTNET_PRIMARY_{RPC,WSS}` to match the testnet jsonKey. **Not yet executed against testnet.**
+- **Smoke-test recipes** at `specs/0g-integration/smoke-tests.md`.
+- **A7 FEEDBACK.md** was drafted then dropped from the branch in this iteration; needs a redo against the SDK-backed implementation before the upstream PR.
+
+**Verification:** `pnpm type-check` clean. `pnpm check` (lint) blocked locally on a `minimumReleaseAge` dlx fetch for `@biomejs/biome@2.4.13` — env issue. `plugins/` is biome-ignored anyway. Defer lint reconciliation until the lockfile/registry policy is sorted.
+
+**What changed vs. the original brief:**
+- We **kept the SDK** instead of wrapping raw HTTP. §12 risk #1 budgeted half a day for SDK gaps; in practice `@0glabs/0g-ts-sdk` round-trips for both Storage Flow writes and Compute serving-broker calls, so it earned the dep slot. `client-core.ts` keeps it isolated from `"use step"` files, which is what `plugins/CLAUDE.md` actually wants (no heavy deps *inside* step files — a separate core module is fine).
+- **`requiresCredentials: false`** on both plugins, signing via the org's KeeperHub wallet. This is a much better story for the upstream PR than per-user private keys, and removes a class of secret-handling concerns from the Phulax demo. Accept as a strict improvement over the brief.
+- Mainnet (16661) seeded alongside testnet at no extra cost.
+
+**Open (still-to-verify):**
+- WSS endpoint for 0G Galileo (`CHAIN_0G_TESTNET_PRIMARY_WSS`) — not yet identified. Existing `Block` / `Event` triggers depend on `eth_subscribe` (per `keeperhub-scheduler/block-dispatcher/chain-monitor.ts:*`). If 0G testnet is HTTPS-only, the trigger won't fire and we need a polling fallback (still-open §15).
+- Block-time + RPC latency numbers — run `scripts/0g/measure-block-time.ts` once a WSS URL is known; numbers belong here.
+- Day-1 green E2E: the workflow JSON skeleton exists but hasn't been imported into a KH dev project and run against testnet. Blocks on (a) a WSS URL, (b) Track B6's deployed FakeLendingPool address.
+- Restore `keeperhub/FEEDBACK.md`, this time describing the SDK-backed shape and the org-wallet signing flow.
+
+**No upstream PR.** Per §7.5 the PR to KeeperHub `staging` opens only after the demo is recorded.
+
+**STRATEGY.md changes needed:** still none for the architecture. Worth a one-line note in §3 / §10 that 0G Storage writes go through the org's KeeperHub wallet via the Flow contract (not bearer auth), since it changes the threat-model story from "we hold a hot key" to "the workflow's signing wallet pays for the write".
+
+### 2026-04-25 — Track F (web/) Phase 1: static mock
+
+**Shipped** (F1 + F2 of `tasks/agents/track-f-web.md`):
+- Scaffolded `web/` as a standalone Next.js 14 App Router app (Tailwind, shadcn-style primitives in `components/ui/`, wagmi v2 + viem + react-query providers, 0G testnet chain wired with injected connector).
+- One-screen dashboard at `app/page.tsx`: connect bar (PhulaxAccount + position), deposit/withdraw card (stubs), live risk gauge with threshold marker + per-signal weights, terminal-styled streaming log panel, FP-feedback toggle, incident timeline.
+- Fake stream lives in `lib/mock.ts`. A `setInterval` on the client pushes ~1 event/sec, plus a "Demo: simulate attack" button that drops the canonical FIRE sequence (invariant violation → vector match → classifier → aggregator → KeeperHub exec → receipt) into the log and prepends an incident.
+- `pnpm install` clean, `pnpm type-check` clean, `pnpm build` succeeds, `pnpm dev` serves 200 with all five panel headings rendered in SSR HTML.
+
+**Surprises:**
+- `wagmi/connectors` is a barrel that pulls the MetaMask SDK + WalletConnect / pino-pretty modules even when you only use `injected()`. Build emits non-fatal "Module not found" warnings for `@react-native-async-storage/async-storage` and `pino-pretty`. Standard wagmi v2 noise; left as-is.
+- Worktree had no root `package.json` / `pnpm-workspace.yaml` yet, so `web/` is currently a standalone pnpm project. When the monorepo lands (todo §4), `web/` slots in as a workspace member with no code changes.
+
+**Deferred to Phase 2** (after Track B6 deploys + B8 emits ABIs): F3 wallet/account reads via generated `wagmi.config.ts`, F4 deposit/withdraw wired to `PhulaxAccount`.
+
+**Deferred to Phase 3** (after Track E7 ships SSE): F5 real `/stream` EventSource, F6 `/incidents/:account` proxy, F8 `POST /feedback` from the toggle. Swap-points are commented in `app/page.tsx` and `components/feedback-toggle.tsx`.
+
+**Nothing to change in `STRATEGY.md`** — §8 ("no fancy frontend") and §6 (demo script) match what's built. The streaming log panel is the credibility moment per todo §8.
+
+### 2026-04-25 — Track D, Phase 1 (stub) shipped
+
+**Shipped:**
+- `inference/server.py` — FastAPI `POST /classify` + `GET /healthz`. Returns the full real-shape response: `{p_nefarious: 0.0, tag: "stub", model_hash: "stub", input_hash, signature}`.
+- `input_hash = sha256(canonical_json(features))` — keys sorted, no whitespace. Same `features` from any caller produces the same hash; verified by test.
+- `signature = HMAC-SHA256(PHULAX_INFERENCE_HMAC_KEY, model_hash || input_hash || canonical_json(output))`. Key has no in-image default; must be supplied at runtime.
+- `inference/Dockerfile` — `python:3.11-slim`, deps pinned in `requirements.txt`. Reproducible today; Phase 2 will add a stage that fetches CIDs from `ml/artifacts.json` at build/boot and rehashes weights into `PHULAX_MODEL_HASH`.
+- `inference/test_server.py` — 4 tests, all passing: healthz, response shape, canonical-hash determinism, end-to-end signature verification with the exact HMAC payload Track E will use to verify ledger entries.
+
+**Checklist status:**
+- [x] D1. Stub endpoint live with correct response shape — Track A unblocked.
+- [ ] D2. Stack decision (llama.cpp vs FastAPI) — **tentatively FastAPI+transformers** for Phase 2 (single language with the stub, fewer moving parts), but keeping the option to swap in `llama.cpp` HTTP behind the same FastAPI proxy if CPU latency on Q4 GGUF is materially better. Will lock once we have a real merged GGUF to benchmark.
+- [ ] D3–D6 — Phase 2, blocked on Track C7 publishing CIDs in `ml/artifacts.json`.
+
+**Surprises / notes:**
+- Pydantic v2 reserves the `model_` namespace, so `model_hash` field name collides. Resolved with `ConfigDict(protected_namespaces=())` rather than renaming, because the wire shape is locked by the contract in §10.
+- Canonical JSON (sorted keys, `(",", ":")` separators) needs to be the *same* on the agent side when it independently recomputes `input_hash` for the 0G Storage Log entry. Worth flagging to Track E so we don't end up with two slightly different canonicalisers.
+- Track A integration: the workflow calls this via KeeperHub's existing **HTTP Request** system action (todo §10) — no new plugin needed. Endpoint URL + HMAC key go in workflow secrets.
+
+**For Track E (reproducibility ledger):** the agent process should be the one writing the 0G Storage Log entry per fire (`input_hash, output, model_hash, signature, weights_cid`). The inference server intentionally does *not* write the log itself — keeps it stateless and avoids double-logging.
+
+### 2026-04-25 — Track B contracts scaffold
+
+Shipped (all in `contracts/`):
+
+- Foundry project (`foundry.toml`, `remappings.txt`, `package.json`, `.gitignore`, `README.md`).
+- `pnpm-workspace.yaml` at repo root including `contracts/`, `agent/`, `web/`, `keeperhub`.
+- Solidity sources:
+  - `src/PhulaxAccount.sol` — `withdraw(adapter)` is the only agent-callable selector and routes hard-coded to `owner`. `setAgent`, `revokeAgent`, `setAdapter`, `execute`, `deposit` all `onlyOwner`.
+  - `src/Hub.sol` — registry + risk policy, events drive UI.
+  - `src/inft/PhulaxINFT.sol` — ERC-7857-shaped (minimal ERC-721, metadata pointer to 0G CID).
+  - `src/adapters/IAdapter.sol`, `src/adapters/FakePoolAdapter.sol`.
+  - `src/pools/IFakeLendingPool.sol`, `src/pools/FakeLendingPool.sol` — both vulns wired (open `setAssetPrice`, CEI-violating `withdraw`). Aave-shape `Supply`/`Borrow`/`Withdraw` events. Not in `keeperhub/protocols/`.
+- Tests:
+  - `test/PhulaxAccount.fuzz.t.sol` — `testFuzz_withdrawAlwaysToOwner` over fuzzed caller/recipient/payout; `test_agentCanOnlyCallWithdraw` checks each non-`withdraw` selector reverts with `NotOwner` when called by the agent.
+  - `test/PhulaxAccount.invariant.t.sol` — invariant fuzz: no non-owner ever holds the asset.
+  - `test/ExploitReplay.t.sol` — drain succeeds and victim withdraw reverts when Phulax absent; agent firing first recovers ≥99% of principal.
+- `script/Deploy.s.sol` — deploys Hub, INFT, FakeLendingPool, optional adapter+account; targets 0G testnet via `foundry.toml` `[rpc_endpoints]` + `[etherscan]` blocks.
+- `scripts/extract-abis.mjs` — emits `abis/*.json` paste-in fallback for KeeperHub `abi-with-auto-fetch`.
+- `wagmi.config.ts` — outputs typed ABIs at `generated/wagmi.ts` for Tracks E and F.
+
+Not run: `forge install`, `forge build`, `forge test`, `forge script` — Foundry isn't installed in the sandbox and the `curl | bash` install was denied. First action when Foundry is available locally: `forge install foundry-rs/forge-std OpenZeppelin/openzeppelin-contracts && forge test -vv`.
+
+Surprises:
+
+- KeeperHub `web3/query-transactions` (per `tasks/todo.md` §7.1, §7.4) decodes calldata, so the only thing the demo pool *must* preserve are Aave-shape event topics — easy. No need to touch any KeeperHub plugin from this track.
+- `forge install foundry-rs/forge-std OpenZeppelin/openzeppelin-contracts` is the only external dep; OZ v5 `_requireOwned` is the right shape for `tokenURI` now (used in `PhulaxINFT`).
