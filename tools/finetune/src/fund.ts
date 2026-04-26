@@ -68,10 +68,20 @@ export async function fund(opts: FundOptions): Promise<void> {
   }
 
   // 3. Sub-account
-  const detail = await broker.fineTuning!.getAccountWithDetail(opts.provider);
-  const balance = BigInt(detail.account.balance);
-  const pendingRefund = BigInt(detail.account.pendingRefund);
-  const available = balance - pendingRefund;
+  // First-time funders won't have a sub-account yet — the SDK reverts
+  // AccountNotExists rather than returning a zero-balance account, so treat
+  // that path as available=0 and let the transferFund below create it.
+  let available = 0n;
+  try {
+    const detail = await broker.fineTuning!.getAccountWithDetail(opts.provider);
+    const balance = BigInt(detail.account.balance);
+    const pendingRefund = BigInt(detail.account.pendingRefund);
+    available = balance - pendingRefund;
+  } catch (err) {
+    const msg = (err as Error).message;
+    if (!/AccountNotExists|Sub-account not found/i.test(msg)) throw err;
+    console.log("Sub-account does not exist yet — will be created by transferFund");
+  }
 
   if (available < subAccountTarget) {
     const delta = subAccountTarget - available;

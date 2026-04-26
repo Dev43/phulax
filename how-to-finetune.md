@@ -113,27 +113,30 @@ cd ..
 pnpm --filter @phulax/finetune discover
 ```
 
-Lists every fine-tuning provider on the contract with availability and price-per-byte. Pin one:
+Lists every fine-tuning provider on the contract with availability and price-per-byte. Pin one in `.env` (the canonical source — every subcommand reads `.env` automatically):
 
 ```bash
-export PHULAX_FT_PROVIDER=0xPROVIDER_ADDRESS_HERE
+# in .env at the repo root (or ml/.env)
+PHULAX_FT_PROVIDER=0xPROVIDER_ADDRESS_HERE
 ```
 
 We pin (rather than auto-pick) because the publish-and-replay receipt records `provider` — switching providers mid-run breaks reproducibility.
 
+> **Don't** pass `--provider $PHULAX_FT_PROVIDER` on the CLI: that env var lives in `.env` and isn't exported to your shell, so the shell expansion produces an empty string. Just omit `--provider` and let the tool resolve it from `.env`.
+
 ### Step 4 — Fund (TS, idempotent)
 
 ```bash
-pnpm --filter @phulax/finetune fund -- --provider $PHULAX_FT_PROVIDER
+pnpm --filter @phulax/finetune fund
 ```
 
 Three on-chain steps, each guarded by a balance check so re-runs don't double-pay:
 
-1. `addLedger` (or `depositFund`) until main ledger ≥ 1.0 0G.
+1. `addLedger` (or `depositFund`) until main ledger ≥ 3.0 0G (testnet minimum).
 2. `acknowledgeProviderSigner` for the chosen provider.
 3. `transferFund` until the provider sub-account ≥ 0.5 0G.
 
-Tune the targets via `--ledger 1.0 --sub-account 0.5` if you need more headroom.
+Tune the targets via `--ledger 3.0 --sub-account 0.5` if you need more headroom. Override the provider for one run with `--provider 0x…` (CLI flag wins over `.env`).
 
 ### Step 5 — Submit (TS)
 

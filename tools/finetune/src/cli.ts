@@ -12,10 +12,14 @@ import { safetyCron } from "./safety-cron.js";
 import { status } from "./status.js";
 import { submit } from "./submit.js";
 
-// Read at handler-call time so the dotenv loader in config.ts has populated
-// process.env regardless of yargs builder evaluation order.
+// Read at handler-call time so the dotenv loader in env.ts has populated
+// process.env regardless of yargs builder evaluation order. An empty/whitespace
+// `--provider` (e.g. when `--provider $PHULAX_FT_PROVIDER` shell-expands to
+// nothing because the var lives only in .env) falls through to the env var
+// rather than failing — this is the common footgun.
 function resolveProvider(flag: string | undefined): string {
-  const provider = flag ?? process.env.PHULAX_FT_PROVIDER;
+  const fromFlag = flag?.trim();
+  const provider = fromFlag || process.env.PHULAX_FT_PROVIDER?.trim();
   if (!provider) {
     throw new Error(
       "provider not set: pass --provider <address> or set PHULAX_FT_PROVIDER in .env",
