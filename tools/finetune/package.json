@@ -9,6 +9,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "patch:broker": "node scripts/patch-broker.mjs",
+    "postinstall": "node scripts/patch-broker.mjs",
     "discover": "tsx src/cli.ts discover",
     "fund": "tsx src/cli.ts fund",
     "submit": "tsx src/cli.ts submit",
