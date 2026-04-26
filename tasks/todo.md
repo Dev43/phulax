@@ -289,6 +289,70 @@ Target: ≥0.8 precision at ≥0.6 recall on the holdout. Below that we lean har
 
 **Fallback if Qwen2.5-0.5B underperforms after fine-tuning:** drop the classifier from the live path entirely, keep only invariants + oracle deviation + vector similarity. The strategy already calls vector similarity the headline novelty, so the demo narrative survives.
 
+### 10.1 0G fine-tuning execution plan (concrete)
+
+**Surface used:** `0g-serving-user-broker` (TypeScript) against the 0G Compute fine-tuning service. CLI is `0g-compute-cli fine-tuning ...`; we drive the same flow programmatically because the 48h acknowledgement deadline and the publish-and-replay receipt both need automation.
+
+**Locked facts from the 0G docs (do not re-litigate):**
+
+- Model = `Qwen2.5-0.5B-Instruct` (0.5 0G / Mtok). LoRA only.
+- Dataset = JSONL, **Instruction/Input/Output** shape, UTF-8, ≥10 rows.
+- Config schema is **rigid** — exactly `{neftune_noise_alpha, num_train_epochs, per_device_train_batch_size, learning_rate, max_steps}`. Decimal notation only. **No `fp16` / `bf16` flags.** Adding/removing keys breaks the job.
+- Output is an **encrypted LoRA adapter** on 0G Storage. **48h hard deadline** to acknowledge; missing it costs 30% fee + the model.
+- Decryption key is delivered on-chain encrypted with the user's pubkey; broker SDK handles decrypt locally.
+- Storage reserve ≈ 0.01 0G for the 0.5B LoRA. Training fee ≈ `(tokens / 1M) * 0.5 * epochs`.
+
+**Stage A — Data collection (`ml/data/`, Python).** Driven by `python -m data.build_dataset`.
+
+1. Sources:
+   - **Nefarious (~50)**: Rekt + SlowMist post-mortem tx hashes (oracle manipulation, reentrancy, flash-loan drains). Pull tx via RPC, decode calldata against the target ABI.
+   - **Benign (~150)**: random sample of mainnet Aave/Compound `supply`/`withdraw`/`borrow` over the last ~1k blocks, plus pool-shape txs against our deployed `FakeLendingPool`.
+2. Canonicalisation: `ml/data/canonicalize.py` — tx → `{selector, decoded_args, value, balance_delta, caller_history_score, oracle_dev_pct}`. **Must produce byte-identical output to `agent/src/detection/canonicalize.ts`** (the one-canonicaliser invariant). Sorted keys, `(",", ":")` separators, fixed precision.
+3. Labelling: `ml/data/label.py` walks unlabeled rows; manual pass for ~200 rows is one sitting.
+4. Emit JSONL using the frozen `ml/prompt/template.py` to render `instruction` (constant per `TEMPLATE_VERSION`), `input` (canonicalised features JSON), `output` (`{"p_nefarious": <0..1>, "tag": "<benign|oracle_manip|reentrancy|flashloan_drain|other>"}`).
+5. 80/20 split. Holdout never goes to 0G — local eval only.
+6. `ml/data/manifest.json`: `{rows, sha256(dataset.jsonl), label_distribution, schema_version, template_version, base_model: "Qwen2.5-0.5B-Instruct"}`. The sha is the dataset receipt anchored in the 0G Storage Log.
+
+**Stage B — Job submission (`tools/finetune/`, new TS workspace).** Out of `agent/` to preserve the "only `withdraw.ts` signs" invariant. Add to `pnpm-workspace.yaml`. Uses a dedicated funding key (env: `PHULAX_FT_PRIVATE_KEY`) — never the agent's runtime key.
+
+- `tools/finetune/src/discover.ts` — `broker.fineTuning.listProviders()` + `listModels()`. Print a table; user (or a `--auto-cheapest` flag) picks one. Selected provider/model pinned into `tools/finetune/run.json` for the rest of the job's lifecycle.
+- `tools/finetune/src/fund.ts` — checks main account balance; if below `(estimatedTrainingFee + 0.01 storage + 10% headroom)`, calls `deposit()` and then `transferToProvider()`. Idempotent, safe to re-run.
+- `tools/finetune/src/submit.ts`:
+  1. Read `ml/data/dataset.jsonl` + `ml/data/manifest.json`.
+  2. Upload dataset → `datasetHash`.
+  3. Write the locked config:
+     ```json
+     {"neftune_noise_alpha": 5,
+      "num_train_epochs": 3,
+      "per_device_train_batch_size": 2,
+      "learning_rate": 0.0002,
+      "max_steps": 480}
+     ```
+     `max_steps` = `ceil(trainRows / batch) * epochs` capped; revisit after first run if loss plateaus early.
+  4. `broker.fineTuning.createTask({ providerAddress, model, datasetHash, configPath })`.
+  5. Persist `tools/finetune/run.json = { taskId, provider, model, datasetHash, configHash, datasetSha256, templateVersion, submittedAt, deadlineAt: submittedAt + 48h }`.
+- `tools/finetune/src/poll.ts` — `getTask` loop with backoff until `Finished` or `Failed`. Structured logs.
+- `tools/finetune/src/ack.ts` — downloads encrypted model, calls `acknowledgeModel`, then `decryptModel`. Writes `adapter.safetensors` into `ml/finetune/in/`. **Idempotent re-runs are safe.**
+- `tools/finetune/src/safety-cron.ts` — separate process (or a `setTimeout` for the demo) firing 47h after `submittedAt`. If `run.json.acknowledgedAt` is unset, run `ack.ts`. Belt-and-braces against the 30% penalty.
+
+**Stage C — Post-training (`ml/`, Python).**
+
+1. `python -m finetune.merge_and_quantize` — PEFT `merge_and_unload` over `ml/finetune/in/adapter.safetensors` + base Qwen2.5-0.5B-Instruct → merged safetensors → `llama.cpp` Q4_K_M GGUF (~400 MB).
+2. `python -m eval.harness` — runs holdout against the merged model using the **same `ml/prompt/template.py`** as training. Writes `ml/eval/REPORT.md` with precision/recall/latency. Gate: ≥0.8 precision @ ≥0.6 recall (§10).
+3. `python -m upload.og_storage` — uploads `merged/`, `adapter.safetensors`, `dataset.jsonl`, `manifest.json`, `tools/finetune/run.json`, `eval/REPORT.md`. Records all CIDs into `ml/artifacts.json` (already the published handoff to Track D + iNFT metadata).
+4. Append a single 0G Storage Log entry: `{kind: "model_publish", model_hash: sha256(GGUF), template_version, dataset_sha256, weights_cid, adapter_cid, eval_cid, provider, task_id, timestamp}`.
+
+**Stage D — Runtime wiring (`inference/`).** Already stubbed. On real-weights load: log `model_hash = sha256(GGUF)` at boot, read `template_version` from `ml/prompt/template.py`, both flow into the per-fire `(input_hash, output, model_hash, signature)` receipt. No interface change for Track D / agent.
+
+**Sequencing.** Stage A runs in parallel with Day-1 KeeperHub work (independent). Stages B–D land on Day 3 alongside the §10 work.
+
+**Failure modes worth pre-empting:**
+
+- Eval misses the gate → fall back per §10 paragraph above; do not gate the demo on the classifier.
+- Provider fails the task → `run.json` retains `datasetHash`; re-run `submit.ts` against a different pinned provider with no re-upload cost.
+- 48h deadline overrun → safety cron is the primary defence; the secondary defence is that `acknowledgeModel` is the same call whether triggered by us or the cron — no divergent code path.
+- Config drift → `tools/finetune/src/submit.ts` validates the config object against a frozen schema before sending; rejects unknown keys (the 0G surface silently accepts and then fails training).
+
 ---
 
 ## 11. Day-by-day execution (mapped to STRATEGY §5)
@@ -618,3 +682,28 @@ All six tracks (A keeperhub-0g, B contracts, C ml, D inference, E agent, F web) 
 - Updated: `checklist.md` (demo coverage matrix replaces the proposed-exploits menu).
 
 **Strategy.md note:** §2(a) lists detection signals abstractly. Worth tightening to reference the five-vuln matrix directly — gives the reader an unambiguous read on what the agent actually defends against. Defer until the demo is recorded so we don't churn the doc twice.
+
+### 2026-04-26 — Track C 0G fine-tuning driver (§10.1 Stage B)
+
+**Shipped:**
+- `tools/finetune/` TS workspace added to `pnpm-workspace.yaml` via `tools/*` glob. Strict TS (`exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`) — clean `pnpm typecheck`.
+- Wraps `@0glabs/0g-serving-broker` v0.7.5 via a single ethers `Wallet` signer keyed off `PHULAX_FT_PRIVATE_KEY` (must not equal the agent runtime key). Lives outside `agent/` so `withdraw.ts` stays the only signer in the runtime container.
+- CLI subcommands (yargs): `discover` / `fund` / `submit` / `poll` / `ack` / `safety-cron` / `status`. All idempotent — re-runs check current state from `ml/artifacts/og-ft/run.json` before doing work.
+- `submit` validates `dataset.jsonl` sha256 against `manifest.json` before upload; rejects on drift. Writes the rigid 0G config (`neftune_noise_alpha, num_train_epochs, per_device_train_batch_size, learning_rate, max_steps`) to `training-config.json` and records its sha256 in `run.json`.
+- `safety-cron` is a long-running watchdog: at submittedAt + 47h, force-acks the model. Defends the 30%-fee penalty on the 48h deadline.
+- `ack` calls `acknowledgeModel({ downloadMethod: "auto" })` then `decryptModel`, dropping the LoRA at `ml/artifacts/lora/adapter_model.safetensors` — the path `ml/finetune/merge_and_quantize` already expects.
+- `ml/prompt/template.py` extended with `instruction_io(row)` (folds SYSTEM into `instruction`, canonicalised features into `input`, target JSON into `output`). `chat_messages` and `TEMPLATE_VERSION` unchanged — local LoRA path keeps working byte-for-byte.
+- `ml/finetune/og_emit.py` reads `data/dataset.jsonl`, emits `artifacts/og-ft/{dataset.jsonl, manifest.json}` with `{rows, sha256, template_version, base_model, label_distribution, built_at}`. Emit is deterministic (sorted keys, fixed separators) so the sha matches across re-runs.
+- `ml/finetune/lora.py:run_remote_0g` rewritten: was a fictional REST POST stub, now shells `pnpm --filter @phulax/finetune {fund,submit,poll,ack}` after running `og_emit`. Trigger env switched from `OG_FT_ENDPOINT` (gone) to `PHULAX_FT_PROVIDER`.
+- `ml/.env.example` and `ml/README.md` updated for the broker-driven flow.
+
+**Decisions / surprises:**
+- 0G's predefined model name on testnet is exactly `"Qwen2.5-0.5B-Instruct"` (string, not a hash) — confirmed in `src.ts/sdk/fine-tuning/const.ts`. Broker resolves to the merkle root internally.
+- Broker `transferFund(provider, "fine-tuning", amount: bigint)` takes neuron, but `depositFund(amount: number)` takes 0G. Easy footgun — wrapped both in `fund.ts` with named-arg semantics so callers always pass 0G.
+- `createZGComputeNetworkBroker` requires a `Wallet` (not a `JsonRpcSigner`) for `broker.fineTuning` to be defined — the source has an `instanceof Wallet` check in `broker.ts`. `broker.ts` (ours) asserts on this.
+- The 0G config schema is unforgiving: silently accepts unknown keys but the training job then fails. `LOCKED_TRAINING_CONFIG` is the only path that writes `training-config.json`; `ALLOWED_CONFIG_KEYS` is asserted at submit time as belt-and-braces.
+
+**Still open:**
+- No live submit yet — needs `PHULAX_FT_PRIVATE_KEY` funded on Galileo and a chosen provider. Discover step verified shape, end-to-end run is gated on funds.
+- `python -m finetune.merge_and_quantize` reads from `artifacts/lora/adapter_model.safetensors`; works whether the file came from the local PEFT path or the 0G ack — no change needed there.
+- `ml/upload/og_storage.py` doesn't yet append the `model_publish` 0G Storage Log entry described in §10.1 Stage C step 4. Add when the first real run produces a CID set.
