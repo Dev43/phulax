@@ -334,3 +334,29 @@ Parallelism: Day 2 contracts and Day 3 ML work can start in parallel on Day 1 on
 
 ## Review section
 *(filled in after each working session - what shipped, what surprised us, what to update in `STRATEGY.md`)*
+
+### 2026-04-25 — Track E (agent/) initial scaffold
+
+**Shipped (E1–E8 all green):**
+- `agent/` workspace: Node 20, viem, fastify, vitest, strict TS (`noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`).
+- Narrow `PhulaxAccount` ABI exporting only `withdraw(adapter)` — single-selector enforcement at the type level. `FakeLendingPool` ABI inlined locally; will be regenerated from Track B's `wagmi.config.ts` once that lands.
+- Detection split into pure tiers (`detection/{invariants,oracle,vector,classifier,detect}.ts`) with all I/O isolated in `detection/hydrate.ts`. `detect(ctx) → Score` is fully pure — covered by a purity test asserting repeated calls are deep-equal.
+- Risk aggregator returns max-across-block per §7.4; iNFT-policy-driven threshold with paused override.
+- 0G client wraps raw HTTP (`og/http.ts`) behind `kv.ts` + `log.ts` — single-file swap when `@0glabs/0g-ts-sdk` catches up (per §12 risk #1).
+- KeeperHub: `Block` trigger + `web3/query-transactions` workflow spec + thin MCP client; per §7.4 no per-tx trigger from scratch.
+- `exec/withdraw.ts` is the **only** module that signs; calldata is constructed in-module from the typed ABI fragment so external calldata can never reach the wallet.
+- `server.ts`: `/stream` (SSE), `/incidents/:account`, `/feedback`, `/detect-batch` (KeeperHub callback). No DB.
+- 7 fixture replays in `test/fixtures/exploits.ts` covering each tier + 2 negative-control fixtures (vector-only / classifier-only must NOT fire alone). 9/9 vitest tests green; `tsc --noEmit` clean.
+
+**Decisions deviating from / refining the doc:**
+- Invariant tier weighted at **0.8**, not 0.6. Spec says "≥0.6" but threshold default is 0.7 — invariants are mathematically decisive when they break, so 0.8 puts them comfortably above threshold. Kept the "≥0.6" spec promise as a floor in the comments. This is the one place the dispatch-prompt numbers needed adjusting to actually fire.
+- Classifier weight: `(p_nefarious − 0.5) × 0.8`, capped so a classifier alone (even at p=0.99 → 0.392) cannot single-handedly cross 0.7. Forces corroboration with at least one other tier — defensible since the classifier is the noisiest signal.
+- `TxContext` carries already-hydrated invariant snapshots, oracle reads, vector match, and classifier receipt. Hydrator (`hydrate.ts`) does all I/O upstream so any fixture can be replayed offline with no mocks.
+
+**Surprises / follow-ups:**
+- Track B's `wagmi.config.ts` not yet present in this worktree — agent's ABI is currently hand-rolled to match §5 contract shape. Swap when Track B B8 lands (one file: `src/abis/FakeLendingPool.ts`).
+- 0G Storage HTTP shim assumes a REST endpoint at `OG_STORAGE_URL`. If 0G Storage SDK only exposes a binary protocol, `og/http.ts` becomes the swap point — keep that file isolated.
+- `RawTx` shape in `hydrate.ts` matches what KeeperHub `query-transactions` should emit (hash, blockNumber, from, to, value, input). Track A may emit a slightly different shape; if so, conversion lives in `server.ts:toRaw` — single point of contact.
+- Withdraw calldata is also built into the workflow spec (`buildPerBlockDetectWorkflow`) so KeeperHub can fire the tx server-side as a fallback if the agent server is down. The agent's hot-key path is the primary; KeeperHub's MPC-key path is the backup.
+
+**Nothing to change in `STRATEGY.md`** — the build matches §3 architecture diagram and §8 scope cuts.
