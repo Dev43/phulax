@@ -1,0 +1,11 @@
+{
+  "rows": 210,
+  "sha256": "828d46213a7d341e69ce546c5b0f79aa1f3ac9cf9eacccc956372c7939a47382",
+  "template_version": "1.0.0",
+  "base_model": "Qwen2.5-0.5B-Instruct",
+  "label_distribution": {
+    "SAFE": 150,
+    "RISK": 60
+  },
+  "built_at": "2026-04-26T22:40:48+00:00"
+}
