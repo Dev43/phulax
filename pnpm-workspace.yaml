@@ -3,3 +3,4 @@ packages:
   - "agent"
   - "web"
   - "keeperhub"
+  - "tools/*"

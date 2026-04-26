@@ -1,0 +1,34 @@
+{
+  "name": "@phulax/finetune",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "phulax-ft": "src/cli.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "discover": "tsx src/cli.ts discover",
+    "fund": "tsx src/cli.ts fund",
+    "submit": "tsx src/cli.ts submit",
+    "poll": "tsx src/cli.ts poll",
+    "ack": "tsx src/cli.ts ack",
+    "safety-cron": "tsx src/cli.ts safety-cron",
+    "status": "tsx src/cli.ts status"
+  },
+  "dependencies": {
+    "@0glabs/0g-serving-broker": "^0.7.5",
+    "ethers": "^6.16.0",
+    "yargs": "^17.7.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.16.0",
+    "@types/yargs": "^17.0.33",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
