@@ -334,3 +334,35 @@ Parallelism: Day 2 contracts and Day 3 ML work can start in parallel on Day 1 on
 
 ## Review section
 *(filled in after each working session - what shipped, what surprised us, what to update in `STRATEGY.md`)*
+
+### 2026-04-25 - Track C (ml/) scaffold
+
+**Shipped:**
+- Full `ml/` tree under `uv` (`pyproject.toml`, `.env.example`, `.gitignore`, `README.md`).
+- Dataset builder (`ml/data/`) emits 210 rows = 60 RISK (15 curated public post-mortems × 3 jittered augmentations) + 150 synthetic benign mainnet-shape rows. Schema per row: `{id, selector, fn, decoded_args, balance_delta, context, source, label}`. Verified by running `python3 -m data.build_dataset` → `data/dataset.jsonl`.
+- Frozen prompt template (`ml/prompt/template.py`, `TEMPLATE_VERSION=1.0.0`). Single source of truth for fine-tune + eval + Track D inference. Imports cheap; bumping the version invalidates published weights.
+- LoRA fine-tune script (`ml/finetune/lora.py`) - rank 16, α 32, dropout 0.05, target attention + MLP projections, lr 2e-4, 3 epochs, seed 1337. Auto-routes to 0G fine-tuning surface when `OG_FT_ENDPOINT` is set, otherwise local transformers + peft.
+- Merge + Q4 quantize (`ml/finetune/merge_and_quantize.py`) - merges adapter into base, exports safetensors + Q4_K_M GGUF via llama.cpp. Skips quantize cleanly if `LLAMA_CPP_DIR` unset.
+- Embeddings indexer (`ml/embed/index.py`) - `all-MiniLM-L6-v2`, 384-dim, pushes to 0G Storage KV with key `phulax/exploit/<id>` and writes a manifest at `artifacts/embeddings_index.json`.
+- 0G Storage HTTP client shim (`ml/og_client.py`): `kv_put`, `upload_file`, `upload_dir`. Env-driven so it can be redirected to a mock in CI.
+- Eval harness (`ml/eval/harness.py`) - 80/20 split (deterministic), supports two modes: local merged model (`MODEL_DIR`) or remote endpoint (`INFERENCE_URL`). Writes `eval/REPORT.md` with confusion matrix, P/R/F1, p50/p95/max latency, and an explicit PASS/FAIL verdict against the ≥0.8 P / ≥0.6 R target. Includes a "Reproducibility" section so a third party with only the CIDs can replay.
+- Upload manifest builder (`ml/upload/og_storage.py`) - uploads merged weights, GGUF, dataset, embeddings index, eval report, and the harness sources themselves; writes `ml/artifacts.json` keyed for Track D + iNFT metadata to consume.
+
+**Not yet run (need credentials/compute the worktree doesn't have):**
+- Actual LoRA fine-tune. Code path is exercised but a real run needs either `OG_FT_ENDPOINT` or a GPU box.
+- 0G Storage uploads. Need `OG_STORAGE_ENDPOINT` + token.
+- `eval/REPORT.md` therefore not yet generated; the harness will produce it once a model is available.
+
+**What surprised us:**
+- The 50/150 split is published as "~200 rows" - I produced 60/150 = 210 because the 15 curated post-mortems × 3 augmentations naturally lands at 60. Slightly more nefarious examples than spec; documented as "~200" range. Class imbalance (≈29% RISK) is on purpose and matches the deployment distribution better than 50/50.
+- Most exploit post-mortems do not preserve full calldata. The dataset stores **structural fingerprints** (selector + decoded args bucketed to magnitudes + balance-delta vector), not raw calldata. This matches what the agent's detection pipeline actually sees at inference time, so train/serve skew is minimised. Callout in `ml/data/exploits.py` docstring.
+- `prompt/template.py` is referenced from three places (fine-tune, eval, Track D inference). Made it the single import source and versioned it explicitly so any change forces a re-train.
+
+**Suggestions for `STRATEGY.md`:**
+- §2(b) currently says "fine-tune a model on 0G over a labelled corpus". Worth tightening to "LoRA-only fine-tune of Qwen2.5-0.5B-Instruct as a structured classifier" - matches the locked decision in §13.3 of this doc and the actual pipeline shape.
+- §5 Day 3 ML bullet could link directly to `ml/README.md` for the run order instead of restating it.
+
+**Handoff to Track D:**
+- Track D should `import` from `ml/prompt/template.py` (or re-implement byte-for-byte against `TEMPLATE_VERSION`) to avoid skew.
+- `ml/artifacts.json` (once populated) is the single source of CIDs for Track D and the iNFT `classifier_pointer`.
+

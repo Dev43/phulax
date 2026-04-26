@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+artifacts/lora/
+artifacts/merged/
+artifacts/*.gguf
+artifacts/*.safetensors
+.uv/

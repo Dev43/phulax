@@ -1,0 +1,27 @@
+[project]
+name = "phulax-ml"
+version = "0.1.0"
+description = "Offline ML pipeline for Phulax: dataset, LoRA fine-tune, embeddings, eval, upload."
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "torch>=2.3",
+    "transformers>=4.44",
+    "peft>=0.12",
+    "datasets>=2.20",
+    "accelerate>=0.33",
+    "sentence-transformers>=3.0",
+    "safetensors>=0.4",
+    "numpy>=1.26",
+    "pydantic>=2.7",
+    "httpx>=0.27",
+    "python-dotenv>=1.0",
+    "rich>=13.7",
+    "scikit-learn>=1.5",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
