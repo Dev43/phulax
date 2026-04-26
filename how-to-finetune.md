@@ -141,7 +141,7 @@ Tune the targets via `--ledger 3.0 --sub-account 0.5` if you need more headroom.
 ### Step 5 — Submit (TS)
 
 ```bash
-pnpm --filter @phulax/finetune submit -- --provider $PHULAX_FT_PROVIDER
+pnpm --filter @phulax/finetune submit
 ```
 
 This is the broker handshake — five contract/RPC interactions in one command:
