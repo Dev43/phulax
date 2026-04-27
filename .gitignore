@@ -2,3 +2,6 @@
 .dmux-hooks/
 .env
 node_modules/
+ml/artifacts/og-ft/encrypted/lora_model_f14b9662-62ce-47c7-a564-35df364980f2.zip
+
+ml/artifacts/og-ft/encrypted/model_f14b9662-62ce-47c7-a564-35df364980f2.bin
