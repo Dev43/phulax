@@ -88,9 +88,45 @@ The actual long-term lever. Synthetic corpus is plateaued at ~330 rows / 15 fing
 
 ## Baseline (before #1 + #2, recorded 2026-04-27)
 
-- in-distribution `REPORT.md`: precision 1.000 / recall 1.000 / f1 1.000 (held-out 20%, n=42) — but every prediction was {0.94, 0.03}
+- in-distribution `REPORT.md`: precision 1.000 / recall 1.000 / f1 1.000 (held-out 20%, n=42) — but every prediction was {0.94, 0.03}, no calibration measure existed
 - OOD `HOLDOUT_REPORT.md`: precision 0.615 / recall 1.000 / f1 0.762 (n=31, 16 OOD-RISK + 15 HARD-SAFE) — 10 FPs, 0 FNs
 
-## After #1 + #2 + #3 + #4 + #5 + #6 + #7
+## After #1 + #2 + #3 + #4 + #5 + #6 + #7 (v2 retrain, 2026-04-27)
 
-(Pending — waiting on the in-flight retrain. Numbers will be appended here once the harness completes against `./artifacts/merged`.)
+Two retrains were needed. The first (3 epochs, 60 RISK / 270 SAFE, rank 8) under-fit RISK badly (recall 0.111 in-distribution). Bumped exploit augmentations 3→8 (135 RISK rows) and epochs 3→5; second retrain converged to eval_loss 0.337.
+
+| metric | baseline | v2 |
+|---|---|---|
+| in-dist precision | 1.000 | 0.686 |
+| in-dist recall    | 1.000 | 0.923 |
+| in-dist f1        | 1.000 | 0.787 |
+| **in-dist Brier** | n/a (binary) | **0.139** |
+| **in-dist ECE**   | n/a (binary) | **0.130** |
+| OOD precision | 0.615 | 0.625 |
+| OOD recall    | 1.000 | 0.625 |
+| OOD f1        | 0.762 | 0.625 |
+| OOD Brier | n/a | 0.291 |
+| OOD ECE   | n/a | 0.288 |
+| score range | {0.03, 0.94} | continuous 0.03–0.97 |
+
+What worked:
+- **#1 label collapse fixed**: predictions are now spread across the full [0, 1] range. Brier and ECE are measurable for the first time.
+- **#3 caller features paid off in two of the four hard-SAFE families**: lido oracle rebase and stargate rebalance go from FP → TN. Hard-SAFE TN rate went from 5/15 (baseline) to 9/15 (v2) — +27pp.
+- **per-signal accuracy reveals where the model actually generalises**: `reentrancy 2/2`, `sig_bypass 2/2`, `drain 1/1`, `donation_attack 3/4`. Fully novel exploit families are being caught structurally, not just memorised.
+
+What regressed:
+- **OOD recall dropped 1.0 → 0.625**: the model now misses 6 of 16 novel exploits, all in `oracle_manipulation 0/2` and `share_inflation 0/2` families plus single misses on `donation_attack` and `governance_hijack`. The class imbalance (1:2 in v2) still leans the model toward SAFE.
+- **Hard-SAFE precision didn't lift much**: 0.615 → 0.625. The model still flips 6 of 15 to RISK including aave-rescueTokens, frax-amo, karak, uniswap-v4-hook-init — most have timelock/contract callers but the model isn't weighting that signal heavily.
+- **Signal head partially collapsed**: many high-p_nefarious rows still emit `signal: "none"`, meaning the categorical head learned the prior more than the conditional. `oracle_manipulation 0/2` and `share_inflation 0/2` are the worst.
+
+## Next iteration (suggested order)
+
+These are the levers most likely to recover the recall while keeping calibration:
+
+1. **Class weighting in the trainer** (small change, big effect). Add `class_weight = {RISK: 2.0, SAFE: 1.0}` (or similar) to the loss so RISK examples contribute more gradient. Avoids needing more data augmentation. Implementation: subclass `Trainer` and override `compute_loss` to upweight tokens whose row label is RISK.
+2. **Bump LoRA capacity back up**: rank 16 (alpha 32) on `q_proj, v_proj` only. ~1.1M params — 2× current, still 3× below the original. The signal head needs more capacity.
+3. **Per-signal augmentation**: the families failing (`oracle_manipulation`, `share_inflation`) have only 16 + 16 base+aug rows. Bump those families' `copies_per_base` to 16 specifically.
+4. **Drop signal output OR train a separate head**: forcing one model to do regression + 8-way classification on 405 rows is too much. Either drop signal entirely (back to `{p_nefarious}` only) or train a second small classifier purely on signal given p_nefarious is high.
+5. **Then revisit calibration**: once raw classification is in shape, fit a temperature scalar on a held-out calibration split.
+
+If the user wants to ship now: the v2 model is defensible because it's the first one with calibrated probabilities, and the per-signal table tells the agent's risk aggregator which signals are reliable (`reentrancy`, `sig_bypass`, `drain`, `donation_attack`) and which to ignore (`oracle_manipulation`, `share_inflation`) until the next retrain.

@@ -1,6 +1,6 @@
 # Phulax OOD holdout report
 
-Generated: 2026-04-27 00:59:46 UTC
+Generated: 2026-04-27 07:16:05 UTC
 
 - mode: `local`
 - model: `./artifacts/merged`
@@ -13,97 +13,122 @@ This set is **disjoint from training**. OOD-RISK rows are public exploits from 2
 
 |             | pred SAFE | pred RISK |
 |-------------|-----------|-----------|
-| actual SAFE | 5 | 10 |
-| actual RISK | 0 | 16 |
+| actual SAFE | 9 | 6 |
+| actual RISK | 6 | 10 |
 
 ## Metrics
 
-- precision: **0.615**
-- recall:    **1.000**
-- f1:        **0.762**
+- precision: **0.625**
+- recall:    **0.625**
+- f1:        **0.625**
+- brier:     **0.2906**  _(lower = better calibrated)_
+- ece:       **0.2875**  _(10-bin Expected Calibration Error)_
+
+## Per-signal accuracy
+
+Hit = correctly classified RISK rows for exploit signals, correctly classified SAFE for `none`. Surfaces which exploit families the model is weakest on.
+
+| signal | hit/total | rate |
+|---|---|---|
+| `donation_attack` | 3/4 | 0.75 |
+| `drain` | 1/1 | 1.00 |
+| `governance_hijack` | 2/3 | 0.67 |
+| `none` | 9/15 | 0.60 |
+| `oracle_manipulation` | 0/2 | 0.00 |
+| `reentrancy` | 2/2 | 1.00 |
+| `share_inflation` | 0/2 | 0.00 |
+| `sig_bypass` | 2/2 | 1.00 |
 
 ## Latency (ms)
 
-- p50: 2396.2
-- p95: 2698.2
-- max: 3088.4
+- p50: 2313.0
+- p95: 2524.8
+- max: 2830.6
 
 ## Per-row predictions
 
-| id | actual | p | pred | verdict | latency (ms) |
-|----|--------|---|------|---------|--------------|
-| `multichain-2023-07` | RISK | 0.940 | RISK | TP | 2698 |
-| `conic-2023-07` | RISK | 0.940 | RISK | TP | 2632 |
-| `raft-2023-11` | RISK | 0.940 | RISK | TP | 2500 |
-| `onyx-2023-11` | RISK | 0.940 | RISK | TP | 2392 |
-| `prisma-2024-03` | RISK | 0.940 | RISK | TP | 2647 |
-| `woofi-2024-03` | RISK | 0.940 | RISK | TP | 2500 |
-| `munchables-2024-03` | RISK | 0.940 | RISK | TP | 2564 |
-| `hedgey-2024-04` | RISK | 0.940 | RISK | TP | 2334 |
-| `sonne-2024-05` | RISK | 0.940 | RISK | TP | 2396 |
-| `velocore-2024-06` | RISK | 0.940 | RISK | TP | 2362 |
-| `uwulend-2024-06` | RISK | 0.940 | RISK | TP | 2293 |
-| `lifi-2024-07` | RISK | 0.940 | RISK | TP | 2477 |
-| `penpie-2024-09` | RISK | 0.940 | RISK | TP | 2706 |
-| `radiant-2024-10` | RISK | 0.940 | RISK | TP | 2665 |
-| `zklend-2025-02` | RISK | 0.940 | RISK | TP | 2212 |
-| `cetus-2025-05` | RISK | 0.940 | RISK | TP | 3088 |
-| `hard-safe-aave-treasury-sweep` | SAFE | 0.940 | RISK | FP ❌ | 2524 |
-| `hard-safe-chainlink-eth-crash` | SAFE | 0.340 | SAFE | TN | 2307 |
-| `hard-safe-whale-deposit` | SAFE | 0.940 | RISK | FP ❌ | 2369 |
-| `hard-safe-liquidation-cascade` | SAFE | 0.940 | RISK | FP ❌ | 2546 |
-| `hard-safe-yearn-v3-rebalance` | SAFE | 0.030 | SAFE | TN | 2345 |
-| `hard-safe-maker-psm-swap` | SAFE | 0.940 | RISK | FP ❌ | 2398 |
-| `hard-safe-bridge-mint-completeTransfer` | SAFE | 0.940 | RISK | FP ❌ | 2308 |
-| `hard-safe-curve-gauge-rebalance` | SAFE | 0.030 | SAFE | TN | 2316 |
-| `hard-safe-compound-rewards-claim` | SAFE | 0.940 | RISK | FP ❌ | 2376 |
-| `hard-safe-stkAAVE-slash` | SAFE | 0.940 | RISK | FP ❌ | 2447 |
-| `hard-safe-new-market-init` | SAFE | 0.940 | RISK | FP ❌ | 2396 |
-| `hard-safe-liquidity-migration` | SAFE | 0.030 | SAFE | TN | 2459 |
-| `hard-safe-pol-twap-harvest` | SAFE | 0.940 | RISK | FP ❌ | 2289 |
-| `hard-safe-chainlink-feed-migration` | SAFE | 0.020 | SAFE | TN | 2113 |
-| `hard-safe-timelock-treasury-transfer` | SAFE | 0.940 | RISK | FP ❌ | 2310 |
+| id | actual | signal | p | pred | verdict | latency (ms) |
+|----|--------|--------|---|------|---------|--------------|
+| `multichain-2023-07` | RISK | drain | 0.934 | SAFE | TP | 2426 |
+| `conic-2023-07` | RISK | reentrancy | 0.950 | RISK | TP | 2356 |
+| `raft-2023-11` | RISK | donation_attack | 0.920 | SAFE | TP | 2003 |
+| `onyx-2023-11` | RISK | donation_attack | 0.034 | SAFE | FN ❌ | 2266 |
+| `prisma-2024-03` | RISK | governance_hijack | 0.935 | RISK | TP | 2525 |
+| `woofi-2024-03` | RISK | oracle_manipulation | 0.340 | SAFE | FN ❌ | 2258 |
+| `munchables-2024-03` | RISK | governance_hijack | 0.240 | SAFE | FN ❌ | 2157 |
+| `hedgey-2024-04` | RISK | sig_bypass | 0.930 | SAFE | TP | 2153 |
+| `sonne-2024-05` | RISK | donation_attack | 0.950 | SAFE | TP | 2080 |
+| `velocore-2024-06` | RISK | share_inflation | 0.140 | SAFE | FN ❌ | 2018 |
+| `uwulend-2024-06` | RISK | oracle_manipulation | 0.246 | RISK | FN ❌ | 2306 |
+| `lifi-2024-07` | RISK | sig_bypass | 0.925 | SAFE | TP | 2313 |
+| `penpie-2024-09` | RISK | reentrancy | 0.850 | RISK | TP | 2397 |
+| `radiant-2024-10` | RISK | governance_hijack | 0.934 | RISK | TP | 2410 |
+| `zklend-2025-02` | RISK | donation_attack | 0.920 | SAFE | TP | 2266 |
+| `cetus-2025-05` | RISK | share_inflation | 0.157 | SAFE | FN ❌ | 2369 |
+| `hard-safe-aave-rescueTokens` | SAFE | none | 0.957 | RISK | FP ❌ | 2475 |
+| `hard-safe-lido-oracle-rebase` | SAFE | none | 0.055 | RISK | TN | 2693 |
+| `hard-safe-convex-pool-shutdown` | SAFE | none | 0.350 | SAFE | TN | 2150 |
+| `hard-safe-eigenlayer-queueWithdrawal` | SAFE | none | 0.947 | SAFE | FP ❌ | 2340 |
+| `hard-safe-gmx-glp-redeem` | SAFE | none | 0.057 | SAFE | TN | 2378 |
+| `hard-safe-frax-amo-mint` | SAFE | none | 0.938 | SAFE | FP ❌ | 2373 |
+| `hard-safe-pendle-pt-redeem-maturity` | SAFE | none | 0.079 | SAFE | TN | 2468 |
+| `hard-safe-karak-epoch-finalize` | SAFE | none | 0.954 | RISK | FP ❌ | 2307 |
+| `hard-safe-maker-dsr-rate-change` | SAFE | none | 0.057 | SAFE | TN | 2285 |
+| `hard-safe-stargate-rebalance` | SAFE | none | 0.034 | SAFE | TN | 2471 |
+| `hard-safe-synthetix-debt-snapshot` | SAFE | none | 0.059 | SAFE | TN | 2322 |
+| `hard-safe-spark-sdai-rebalance` | SAFE | none | 0.047 | SAFE | TN | 2831 |
+| `hard-safe-uniswap-v4-hook-init` | SAFE | none | 0.950 | RISK | FP ❌ | 2310 |
+| `hard-safe-jonesdao-adapter-swap` | SAFE | none | 0.057 | SAFE | TN | 2213 |
+| `hard-safe-curve-admin-fee-claim` | SAFE | none | 0.570 | SAFE | FP ❌ | 2134 |
 
 ## Misclassifications
 
-10 of 31 rows wrong. Each one is the next thing to address — either add the family to training, adjust the prompt, or accept it as a known weakness.
+12 of 31 rows wrong. Each one is the next thing to address — either add the family to training, adjust the prompt, or accept it as a known weakness.
 
-### `hard-safe-aave-treasury-sweep` — actual SAFE, predicted RISK (p=0.940)
+### `onyx-2023-11` — actual RISK, predicted SAFE (p=0.034)
 
-> scheduled AIP-executed sweep of accrued protocol fees from Aave Collector to Ecosystem Reserve; large but routine
+> Compound v2 fork CEther rounding: redeem(1) returns full underlying after empty-market donation
 
-### `hard-safe-whale-deposit` — actual SAFE, predicted RISK (p=0.940)
+### `woofi-2024-03` — actual RISK, predicted SAFE (p=0.340)
 
-> single-block $50M USDC deposit from a Fireblocks-tagged institutional wallet; share_price barely moves
+> sPMM oracle anchored to thin spot pool; flash-loan crashes WOO mark price then drains stable pair
 
-### `hard-safe-liquidation-cascade` — actual SAFE, predicted RISK (p=0.940)
+### `munchables-2024-03` — actual RISK, predicted SAFE (p=0.240)
 
-> routine liquidation during high volatility; both legs match and HF crosses from <1 to >1 in the same tx
+> rogue dev pre-set storage owner during initialiser; later upgrade swaps implementation and drains via owner-only path
 
-### `hard-safe-maker-psm-swap` — actual SAFE, predicted RISK (p=0.940)
+### `velocore-2024-06` — actual RISK, predicted SAFE (p=0.140)
 
-> $20M PSM USDC→DAI swap; touches reserves but bounded by PSM debt ceiling and 1:1 invariant
+> convergent pool fee multiplier overflow; negative fee credits attacker on each swap leg
 
-### `hard-safe-bridge-mint-completeTransfer` — actual SAFE, predicted RISK (p=0.940)
+### `uwulend-2024-06` — actual RISK, predicted RISK (p=0.246)
 
-> Wormhole VAA verified by guardian quorum; legitimate inbound mint after a cross-chain bridge - same selector as wormhole-2022-02 but signature is valid
+> sUSDE oracle pulls median across thin Curve pool; flash-loan skew lets attacker borrow 4x face
 
-### `hard-safe-compound-rewards-claim` — actual SAFE, predicted RISK (p=0.940)
+### `cetus-2025-05` — actual RISK, predicted SAFE (p=0.157)
 
-> user claims 9.4k COMP accrued over 3 months; transfer-shape delta but emitted by Comet rewards contract
+> Sui Move overflow on liquidity_math::get_amount_by_liquidity; mints near-zero LP for attacker, then drains both reserves
 
-### `hard-safe-stkAAVE-slash` — actual SAFE, predicted RISK (p=0.940)
+### `hard-safe-aave-rescueTokens` — actual SAFE, predicted RISK (p=0.957)
 
-> Aave SafetyModule slash executed by governance after shortfall vote; large negative share_price step but governance-signed
+> Aave admin rescues $34M of mistakenly sent USDC; permissioned function gated on POOL_ADMIN role
 
-### `hard-safe-new-market-init` — actual SAFE, predicted RISK (p=0.940)
+### `hard-safe-eigenlayer-queueWithdrawal` — actual SAFE, predicted SAFE (p=0.947)
 
-> first deposit on freshly listed rsETH market - reserve seed by treasury pre-funded the empty market so share_price stays 1:1 (mitigation against donation attacks)
+> EigenLayer operator queues large unbond; 7-day delay before completeWithdrawal can fire
 
-### `hard-safe-pol-twap-harvest` — actual SAFE, predicted RISK (p=0.940)
+### `hard-safe-frax-amo-mint` — actual SAFE, predicted SAFE (p=0.938)
 
-> protocol-owned-liquidity TWAP harvest paid to ops multisig via timelocked withdrawAdmin path
+> Frax AMO mints into Curve metapool; permissioned controller writes governed by AMO Minter ceiling — selector LOOKS like an unauthorized mint but role-gated
 
-### `hard-safe-timelock-treasury-transfer` — actual SAFE, predicted RISK (p=0.940)
+### `hard-safe-karak-epoch-finalize` — actual SAFE, predicted RISK (p=0.954)
 
-> $100M treasury sweep executed by 7-day timelock after successful on-chain vote; same selector + magnitude as harmony-2022-06 but origin is the timelock contract
+> Karak finalizes epoch unstake batch; queued during a 7-day withdrawal window so balance delta is large but expected
+
+### `hard-safe-uniswap-v4-hook-init` — actual SAFE, predicted RISK (p=0.950)
+
+> Uniswap v4 pool initialised with treasury seed; share_price starts at 1:1 by construction (looks like donation-attack first-deposit but is the protocol-defined init)
+
+### `hard-safe-curve-admin-fee-claim` — actual SAFE, predicted SAFE (p=0.570)
+
+> Curve weekly admin fee sweep to fee distributor; large transfer but capped by accrued admin_fee accumulator

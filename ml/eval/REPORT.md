@@ -1,34 +1,36 @@
 # Phulax classifier eval report
 
-Generated: 2026-04-27 00:39:54 UTC
+Generated: 2026-04-27 07:14:35 UTC
 
 - mode: `local`
 - model: `./artifacts/merged`
 - threshold: `0.5`
 - targets: precision ≥ 0.8, recall ≥ 0.6
 
-## Confusion matrix (held-out 20%, n=42)
+## Confusion matrix (held-out 20%, n=81)
 
 |             | pred SAFE | pred RISK |
 |-------------|-----------|-----------|
-| actual SAFE | 32 | 0 |
-| actual RISK | 0 | 10 |
+| actual SAFE | 44 | 11 |
+| actual RISK | 2 | 24 |
 
 ## Metrics
 
-- precision: **1.000**
-- recall:    **1.000**
-- f1:        **1.000**
+- precision: **0.686**
+- recall:    **0.923**
+- f1:        **0.787**
+- brier:     **0.1394**  _(lower = better calibrated, 0 = perfect)_
+- ece:       **0.1301**  _(10-bin Expected Calibration Error)_
 
 ## Latency (ms)
 
-- p50: 2088.3
-- p95: 2326.9
-- max: 2429.8
+- p50: 2370.4
+- p95: 2643.8
+- max: 3398.9
 
 ## Verdict
 
-**PASS**
+**FAIL — fall back to vector-similarity-only path (todo §10 last paragraph)**
 
 ## Reproducibility
 

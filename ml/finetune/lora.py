@@ -26,14 +26,20 @@ DATA = ROOT / "data" / "dataset.jsonl"
 OUT = ROOT / "artifacts" / "lora"
 
 BASE_MODEL = "Qwen/Qwen2.5-0.5B-Instruct"
-LORA_RANK = 8
-LORA_ALPHA = 16
+LORA_RANK = 16
+LORA_ALPHA = 32
 LORA_DROPOUT = 0.05
 TARGET_MODULES = ["q_proj", "v_proj"]
 LR = 2e-4
-EPOCHS = 3
+EPOCHS = 5
 SEED = 1337
 MAX_LEN = 768  # canonical blob grew with `caller` + `signal` — give headroom
+
+# v3: class weighting per row in the trainer's compute_loss. RISK rows
+# contribute 2x gradient so the model stops leaning toward SAFE under
+# the 1:2 imbalance (135 RISK / 270 SAFE). See WeightedTrainer below.
+RISK_WEIGHT = 2.0
+SAFE_WEIGHT = 1.0
 
 
 def load_rows() -> list[dict]:
@@ -107,6 +113,46 @@ def run_local(train: list[dict], eval_: list[dict]) -> Path:
 
     from prompt.template import chat_messages
 
+    class WeightedTrainer(Trainer):
+        """Multiply per-row CE loss by `class_weight` (set in encode()).
+
+        Standard `Trainer.compute_loss` averages CE over all non-(-100) tokens
+        of the batch. We instead compute per-token CE, multiply each token's
+        loss by the row's class weight, then average. Two-line semantic
+        change with a big effect under class imbalance.
+        """
+
+        def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+            class_weight = inputs.pop("class_weight", None)
+            outputs = model(**inputs)
+            logits = outputs.logits
+            labels = inputs["labels"]
+            shift_logits = logits[..., :-1, :].contiguous()
+            shift_labels = labels[..., 1:].contiguous()
+            loss_fn = torch.nn.CrossEntropyLoss(reduction="none", ignore_index=-100)
+            per_token = loss_fn(
+                shift_logits.view(-1, shift_logits.size(-1)),
+                shift_labels.view(-1),
+            ).view(shift_labels.size())
+            mask = (shift_labels != -100).float()
+            if class_weight is not None:
+                w = class_weight.to(per_token.dtype).view(-1, 1)
+                per_token = per_token * w
+            loss = (per_token * mask).sum() / mask.sum().clamp(min=1)
+            return (loss, outputs) if return_outputs else loss
+
+    class WeightedCollator:
+        """Wraps DataCollatorForLanguageModeling to also stack class_weight."""
+
+        def __init__(self, base):
+            self._base = base
+
+        def __call__(self, features):
+            weights = [float(f.pop("class_weight", 1.0)) for f in features]
+            batch = self._base(features)
+            batch["class_weight"] = torch.tensor(weights, dtype=torch.float32)
+            return batch
+
     OUT.mkdir(parents=True, exist_ok=True)
     print(f"loading base model {BASE_MODEL}")
     tok = AutoTokenizer.from_pretrained(BASE_MODEL)
@@ -155,6 +201,9 @@ def run_local(train: list[dict], eval_: list[dict]) -> Path:
             if tid == pad_id:
                 labels[i] = -100
         full["labels"] = labels
+        full["class_weight"] = (
+            RISK_WEIGHT if row.get("label") == "RISK" else SAFE_WEIGHT
+        )
         return full
 
     train_ds = Dataset.from_list(train).map(encode, remove_columns=list(train[0]))
@@ -183,10 +232,12 @@ def run_local(train: list[dict], eval_: list[dict]) -> Path:
         seed=SEED,
         report_to=[],
     )
-    trainer = Trainer(
+    trainer = WeightedTrainer(
         model=model, args=args, train_dataset=train_ds, eval_dataset=eval_ds,
         processing_class=tok,
-        data_collator=DataCollatorForLanguageModeling(tok, mlm=False),
+        data_collator=WeightedCollator(
+            DataCollatorForLanguageModeling(tok, mlm=False)
+        ),
     )
     trainer.train()
     trainer.save_model(str(OUT))
