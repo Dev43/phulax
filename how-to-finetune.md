@@ -250,7 +250,7 @@ PEFT `merge_and_unload` over base Qwen2.5-0.5B-Instruct + the adapter, then `lla
 ### Step 10 — Eval (Python)
 
 ```bash
-uv run python -m eval.harness                   # → eval/REPORT.md
+MODEL_DIR=./artifacts/mergeduv uv run python -m eval.harness                   # → eval/REPORT.md
 ```
 
 Runs the holdout split through the merged model **using the same `prompt/template.py`** as training (this is why the template is frozen — drift between train and eval makes the numbers meaningless).
