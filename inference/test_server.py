@@ -32,6 +32,7 @@ def test_classify_shape_and_stub_value():
     body = r.json()
     assert body["p_nefarious"] == 0.0
     assert body["tag"] == "stub"
+    assert body["signal"] == "none"
     assert body["model_hash"] == "stub"
     assert len(body["input_hash"]) == 64
     assert len(body["signature"]) == 64
@@ -52,7 +53,7 @@ def test_signature_verifies():
     expected_input_hash = hashlib.sha256(canonical).hexdigest()
     assert r["input_hash"] == expected_input_hash
 
-    output = {"p_nefarious": r["p_nefarious"], "tag": r["tag"]}
+    output = {"p_nefarious": r["p_nefarious"], "tag": r["tag"], "signal": r["signal"]}
     payload = (
         r["model_hash"].encode()
         + r["input_hash"].encode()

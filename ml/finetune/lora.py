@@ -1,11 +1,15 @@
 """LoRA fine-tune of Qwen2.5-0.5B-Instruct on the Phulax dataset.
 
-Locked hyperparameters per tasks/todo.md §10 + §13.3:
+Hyperparameters (post-#5 right-sizing for ~330-row dataset):
   - base: Qwen/Qwen2.5-0.5B-Instruct
-  - LoRA rank 16, alpha 32, dropout 0.05
-  - target modules: attention (q,k,v,o) + MLP (gate,up,down) projections
+  - LoRA rank 8, alpha 16, dropout 0.05
+  - target modules: attention q + v projections only
   - lr 2e-4, 3 epochs, bf16 if available else fp16
   - 80/20 train/eval split (deterministic seed)
+
+Loss is masked to the assistant span only (#4): user/system tokens are set to
+-100 in `labels` so the cross-entropy is computed exclusively over the JSON
+target. Concentrates gradient on what we actually want the model to predict.
 
 If OG_FT_ENDPOINT is set, the script POSTs the dataset + config there and polls
 for an adapter artefact. Otherwise it runs locally via transformers + peft.
@@ -22,14 +26,14 @@ DATA = ROOT / "data" / "dataset.jsonl"
 OUT = ROOT / "artifacts" / "lora"
 
 BASE_MODEL = "Qwen/Qwen2.5-0.5B-Instruct"
-LORA_RANK = 16
-LORA_ALPHA = 32
+LORA_RANK = 8
+LORA_ALPHA = 16
 LORA_DROPOUT = 0.05
-TARGET_MODULES = ["q_proj", "k_proj", "v_proj", "o_proj",
-                   "gate_proj", "up_proj", "down_proj"]
+TARGET_MODULES = ["q_proj", "v_proj"]
 LR = 2e-4
 EPOCHS = 3
 SEED = 1337
+MAX_LEN = 768  # canonical blob grew with `caller` + `signal` — give headroom
 
 
 def load_rows() -> list[dict]:
@@ -124,16 +128,43 @@ def run_local(train: list[dict], eval_: list[dict]) -> Path:
     model.print_trainable_parameters()
 
     def encode(row: dict) -> dict:
-        text = tok.apply_chat_template(
+        # Tokenise prefix (system + user, with generation prompt) and full
+        # transcript separately. Labels are -100 over the prefix so the
+        # cross-entropy is only computed on the assistant JSON target.
+        prefix_text = tok.apply_chat_template(
+            chat_messages(row, with_target=False),
+            tokenize=False, add_generation_prompt=True,
+        )
+        full_text = tok.apply_chat_template(
             chat_messages(row, with_target=True),
             tokenize=False, add_generation_prompt=False,
         )
-        ids = tok(text, truncation=True, max_length=512, padding="max_length")
-        ids["labels"] = ids["input_ids"].copy()
-        return ids
+        prefix_ids = tok(prefix_text, add_special_tokens=False)["input_ids"]
+        full = tok(
+            full_text,
+            truncation=True, max_length=MAX_LEN, padding="max_length",
+            add_special_tokens=False,
+        )
+        labels = list(full["input_ids"])
+        # Mask out the prefix span and any pad tokens.
+        prefix_len = min(len(prefix_ids), len(labels))
+        for i in range(prefix_len):
+            labels[i] = -100
+        pad_id = tok.pad_token_id
+        for i, tid in enumerate(labels):
+            if tid == pad_id:
+                labels[i] = -100
+        full["labels"] = labels
+        return full
 
     train_ds = Dataset.from_list(train).map(encode, remove_columns=list(train[0]))
     eval_ds = Dataset.from_list(eval_).map(encode, remove_columns=list(eval_[0]))
+
+    # Sanity: confirm the assistant span is what we're supervising.
+    sample = train_ds[0]
+    n_supervised = sum(1 for x in sample["labels"] if x != -100)
+    print(f"loss-mask check: {n_supervised}/{len(sample['labels'])} tokens supervised "
+          f"(should be ~length of the JSON target, ~20-30)")
 
     args = TrainingArguments(
         output_dir=str(OUT),
@@ -154,7 +185,7 @@ def run_local(train: list[dict], eval_: list[dict]) -> Path:
     )
     trainer = Trainer(
         model=model, args=args, train_dataset=train_ds, eval_dataset=eval_ds,
-        tokenizer=tok,
+        processing_class=tok,
         data_collator=DataCollatorForLanguageModeling(tok, mlm=False),
     )
     trainer.train()

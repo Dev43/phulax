@@ -38,17 +38,59 @@ def split_eval(rows: list[dict]) -> list[dict]:
 
 
 def parse_output(text: str) -> tuple[float, str]:
-    """Extract {p_nefarious, tag} from the model's raw text. Robust to stray prose."""
+    """Extract (p_nefarious, tag) from the model's raw text.
+
+    Schema 2.0.0: {"p_nefarious": float, "signal": str}
+        — `signal == "none"` → tag SAFE, anything else → RISK.
+    Schema 1.0.0 fallback: {"p_nefarious": float, "tag": "SAFE"|"RISK"}.
+    Robust to stray prose by greedy-matching the JSON object containing p_nefarious.
+    """
     m = re.search(r"\{[^{}]*\"p_nefarious\"[^{}]*\}", text)
     if not m:
         return (0.5, "SAFE")
     try:
         obj = json.loads(m.group(0))
         p = float(obj.get("p_nefarious", 0.5))
-        tag = str(obj.get("tag", "SAFE")).upper()
-        return (max(0.0, min(1.0, p)), tag if tag in ("SAFE", "RISK") else "SAFE")
+        if "signal" in obj:
+            sig = str(obj["signal"]).lower()
+            tag = "SAFE" if sig == "none" else "RISK"
+        else:
+            tag = str(obj.get("tag", "SAFE")).upper()
+            tag = tag if tag in ("SAFE", "RISK") else "SAFE"
+        return (max(0.0, min(1.0, p)), tag)
     except (ValueError, json.JSONDecodeError):
         return (0.5, "SAFE")
+
+
+def calibration_metrics(
+    rows: list[dict], preds: list[tuple[float, str, float]], n_bins: int = 10
+) -> dict[str, float]:
+    """Brier score + 10-bin Expected Calibration Error.
+
+    Brier:   mean((p - y)^2) over all rows; lower = better calibrated.
+    ECE:     weighted average over bins of |confidence - accuracy|.
+             confidence = mean predicted p in bin; accuracy = fraction RISK in bin.
+    """
+    if not rows:
+        return {"brier": 0.0, "ece": 0.0}
+    ys = [1.0 if r["label"] == "RISK" else 0.0 for r in rows]
+    ps = [p for p, _, _ in preds]
+    brier = sum((p - y) ** 2 for p, y in zip(ps, ys)) / len(ys)
+
+    bins: list[tuple[list[float], list[float]]] = [([], []) for _ in range(n_bins)]
+    for p, y in zip(ps, ys):
+        idx = min(int(p * n_bins), n_bins - 1)
+        bins[idx][0].append(p)
+        bins[idx][1].append(y)
+    ece = 0.0
+    n = len(ys)
+    for ps_in_bin, ys_in_bin in bins:
+        if not ps_in_bin:
+            continue
+        conf = sum(ps_in_bin) / len(ps_in_bin)
+        acc = sum(ys_in_bin) / len(ys_in_bin)
+        ece += (len(ps_in_bin) / n) * abs(conf - acc)
+    return {"brier": brier, "ece": ece}
 
 
 def classify_local(rows: list[dict]) -> list[tuple[float, str, float]]:
@@ -118,10 +160,13 @@ def metrics(rows: list[dict], preds: list[tuple[float, str, float]]) -> dict:
     recall = tp / (tp + fn) if tp + fn else 0.0
     f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
     lats = [lat for _, _, lat in preds]
+    cal = calibration_metrics(rows, preds)
     return {
         "n": len(rows), "tp": tp, "fp": fp, "fn": fn, "tn": tn,
         "precision": precision, "recall": recall, "f1": f1,
         "threshold": THRESHOLD,
+        "brier": cal["brier"],
+        "ece": cal["ece"],
         "latency_ms": {
             "p50": statistics.median(lats),
             "p95": sorted(lats)[int(len(lats) * 0.95) - 1] if lats else 0,
@@ -154,6 +199,8 @@ Generated: {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}
 - precision: **{m['precision']:.3f}**
 - recall:    **{m['recall']:.3f}**
 - f1:        **{m['f1']:.3f}**
+- brier:     **{m['brier']:.4f}**  _(lower = better calibrated, 0 = perfect)_
+- ece:       **{m['ece']:.4f}**  _(10-bin Expected Calibration Error)_
 
 ## Latency (ms)
 

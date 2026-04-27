@@ -41,6 +41,7 @@ class ClassifyResponse(BaseModel):
 
     p_nefarious: float
     tag: str
+    signal: str = "none"
     model_hash: str
     input_hash: str
     signature: str
@@ -54,9 +55,14 @@ def _canonical(features: Any) -> bytes:
     return json.dumps(features, sort_keys=True, separators=(",", ":")).encode()
 
 
-def _classify(features: Any) -> tuple[float, str]:
-    """Phase 1 stub. Phase 2 swaps in a real model call here."""
-    return 0.0, "stub"
+def _classify(features: Any) -> tuple[float, str, str]:
+    """Phase 1 stub. Phase 2 swaps in a real model call here.
+
+    Returns (p_nefarious, tag, signal). signal ∈ prompt.template.SIGNALS;
+    tag is derived (SAFE iff signal == "none") for backwards compat with
+    callers built against schema 1.0.0.
+    """
+    return 0.0, "stub", "none"
 
 
 def _sign(model_hash: str, input_hash: str, output: dict[str, Any]) -> str:
@@ -77,12 +83,13 @@ def healthz() -> dict[str, str]:
 def classify(req: ClassifyRequest) -> ClassifyResponse:
     canonical = _canonical(req.features)
     input_hash = hashlib.sha256(canonical).hexdigest()
-    p_nefarious, tag = _classify(req.features)
-    output = {"p_nefarious": p_nefarious, "tag": tag}
+    p_nefarious, tag, signal = _classify(req.features)
+    output = {"p_nefarious": p_nefarious, "tag": tag, "signal": signal}
     signature = _sign(MODEL_HASH, input_hash, output)
     return ClassifyResponse(
         p_nefarious=p_nefarious,
         tag=tag,
+        signal=signal,
         model_hash=MODEL_HASH,
         input_hash=input_hash,
         signature=signature,

@@ -89,6 +89,7 @@ from __future__ import annotations
 OOD_NEFARIOUS: list[dict] = [
     {
         "id": "multichain-2023-07",
+        "caller": {"role": "multisig", "age_days": 700, "signer_quorum": 2},
         "selector": "0xa9059cbb",
         "fn": "transfer",
         "decoded_args": {"to": "attacker", "amount": "1.26e26"},
@@ -97,9 +98,11 @@ OOD_NEFARIOUS: list[dict] = [
                    "structurally indistinguishable from a legit transfer except "
                    "for the destination + size against TVL",
         "source": "https://multichain-xyz.medium.com/security-incident-update-71-jul-2023",
+        "signal": "drain",
     },
     {
         "id": "conic-2023-07",
+        "caller": {"role": "contract", "age_days": 0, "signer_quorum": None},
         "selector": "0x441a3e70",
         "fn": "withdraw",
         "decoded_args": {"poolId": "ETH-LP", "shares": "1.7e21"},
@@ -108,9 +111,11 @@ OOD_NEFARIOUS: list[dict] = [
         "context": "read-only reentrancy via Curve get_virtual_price; oracle "
                    "drifts mid-callback before withdraw settles",
         "source": "https://medium.com/chainsecurity/conic-omnipool-incident-report",
+        "signal": "reentrancy",
     },
     {
         "id": "raft-2023-11",
+        "caller": {"role": "contract", "age_days": 0, "signer_quorum": None},
         "selector": "0x6e553f65",
         "fn": "deposit",
         "decoded_args": {"assets": "1", "receiver": "self"},
@@ -119,9 +124,11 @@ OOD_NEFARIOUS: list[dict] = [
         "context": "first-depositor donation attack on empty cR-token; share "
                    "price inflated to 1e18 so subsequent depositors mint zero",
         "source": "https://medium.com/raft-fi/raft-incident-report-nov-10-2023",
+        "signal": "donation_attack",
     },
     {
         "id": "onyx-2023-11",
+        "caller": {"role": "eoa", "age_days": 1, "signer_quorum": None},
         "selector": "0xdb006a75",
         "fn": "redeem",
         "decoded_args": {"cTokenAmount": "1"},
@@ -130,9 +137,11 @@ OOD_NEFARIOUS: list[dict] = [
         "context": "Compound v2 fork CEther rounding: redeem(1) returns full "
                    "underlying after empty-market donation",
         "source": "https://medium.com/onyx-protocol/post-mortem-nov-2023",
+        "signal": "donation_attack",
     },
     {
         "id": "prisma-2024-03",
+        "caller": {"role": "eoa", "age_days": 0, "signer_quorum": None},
         "selector": "0x4f1ef286",
         "fn": "migrateTroveZap",
         "decoded_args": {"to": "attacker", "data": "0xface..."},
@@ -140,9 +149,11 @@ OOD_NEFARIOUS: list[dict] = [
         "context": "MigrateTroveZap forwards arbitrary callback to user-controlled "
                    "contract; trove debt re-assigned mid-call",
         "source": "https://prismafinance.medium.com/incident-march-28-2024",
+        "signal": "governance_hijack",
     },
     {
         "id": "woofi-2024-03",
+        "caller": {"role": "contract", "age_days": 0, "signer_quorum": None},
         "selector": "0x7c025200",
         "fn": "swap",
         "decoded_args": {"fromToken": "WOO", "amount": "1.0e25"},
@@ -151,9 +162,11 @@ OOD_NEFARIOUS: list[dict] = [
         "context": "sPMM oracle anchored to thin spot pool; flash-loan crashes "
                    "WOO mark price then drains stable pair",
         "source": "https://woo.org/blog/woofi-spmm-incident-report",
+        "signal": "oracle_manipulation",
     },
     {
         "id": "munchables-2024-03",
+        "caller": {"role": "multisig", "age_days": 90, "signer_quorum": 1},
         "selector": "0x3659cfe6",
         "fn": "upgradeTo",
         "decoded_args": {"newImplementation": "attacker"},
@@ -161,9 +174,11 @@ OOD_NEFARIOUS: list[dict] = [
         "context": "rogue dev pre-set storage owner during initialiser; later "
                    "upgrade swaps implementation and drains via owner-only path",
         "source": "https://medium.com/munchables/incident-march-26-2024",
+        "signal": "governance_hijack",
     },
     {
         "id": "hedgey-2024-04",
+        "caller": {"role": "eoa", "age_days": 1, "signer_quorum": None},
         "selector": "0x86a0e8d8",
         "fn": "claim",
         "decoded_args": {"campaignId": "42", "sig": "0xrep..."},
@@ -171,9 +186,11 @@ OOD_NEFARIOUS: list[dict] = [
         "context": "claim signature replay across campaigns; same sig redeemed N "
                    "times with no nonce check",
         "source": "https://hedgey.medium.com/incident-report-april-19-2024",
+        "signal": "sig_bypass",
     },
     {
         "id": "sonne-2024-05",
+        "caller": {"role": "eoa", "age_days": 1, "signer_quorum": None},
         "selector": "0x617ba037",
         "fn": "supply",
         "decoded_args": {"asset": "VELO", "amount": "1"},
@@ -182,9 +199,11 @@ OOD_NEFARIOUS: list[dict] = [
         "context": "empty-market donation attack on freshly listed VELO market "
                    "before reserves seeded; classic Compound v2 fork inflate",
         "source": "https://medium.com/sonnefinance/post-mortem-may-15-2024",
+        "signal": "donation_attack",
     },
     {
         "id": "velocore-2024-06",
+        "caller": {"role": "contract", "age_days": 0, "signer_quorum": None},
         "selector": "0x12aa3caf",
         "fn": "swap",
         "decoded_args": {"pool": "CVE-WETH", "amountIn": "1.0e21"},
@@ -193,9 +212,11 @@ OOD_NEFARIOUS: list[dict] = [
         "context": "convergent pool fee multiplier overflow; negative fee credits "
                    "attacker on each swap leg",
         "source": "https://velocore.medium.com/incident-report-june-2-2024",
+        "signal": "share_inflation",
     },
     {
         "id": "uwulend-2024-06",
+        "caller": {"role": "contract", "age_days": 0, "signer_quorum": None},
         "selector": "0xc5ebeaec",
         "fn": "borrow",
         "decoded_args": {"asset": "USDT", "amount": "1.93e7"},
@@ -204,9 +225,11 @@ OOD_NEFARIOUS: list[dict] = [
         "context": "sUSDE oracle pulls median across thin Curve pool; flash-loan "
                    "skew lets attacker borrow 4x face",
         "source": "https://uwulend.medium.com/incident-report-june-10-2024",
+        "signal": "oracle_manipulation",
     },
     {
         "id": "lifi-2024-07",
+        "caller": {"role": "contract", "age_days": 0, "signer_quorum": None},
         "selector": "0x4630a0d8",
         "fn": "swapAndStartBridgeTokensViaPermit",
         "decoded_args": {"caller": "attacker", "permit": "0xforged..."},
@@ -214,9 +237,11 @@ OOD_NEFARIOUS: list[dict] = [
         "context": "facet did not validate `caller` against approver; old "
                    "infinite-approvals on diamond drained via crafted permit",
         "source": "https://li.fi/news/incident-report-july-16-2024",
+        "signal": "sig_bypass",
     },
     {
         "id": "penpie-2024-09",
+        "caller": {"role": "contract", "age_days": 0, "signer_quorum": None},
         "selector": "0x6e9960c3",
         "fn": "registerPenpiePool",
         "decoded_args": {"market": "attacker-market", "rewarder": "attacker"},
@@ -224,9 +249,11 @@ OOD_NEFARIOUS: list[dict] = [
         "context": "permissionless registerPenpiePool + reentrancy via fake "
                    "Pendle market harvests duplicate rewards",
         "source": "https://medium.com/penpiexyz/incident-report-sept-3-2024",
+        "signal": "reentrancy",
     },
     {
         "id": "radiant-2024-10",
+        "caller": {"role": "multisig", "age_days": 600, "signer_quorum": 3},
         "selector": "0x4f1ef286",
         "fn": "upgradeTo",
         "decoded_args": {"target": "lendingPool", "impl": "attacker"},
@@ -234,9 +261,11 @@ OOD_NEFARIOUS: list[dict] = [
         "context": "three multisig signers' devices compromised via malware; "
                    "legitimate-looking upgrade replaces pool with backdoored impl",
         "source": "https://medium.com/@RadiantCapital/post-mortem-oct-16-2024",
+        "signal": "governance_hijack",
     },
     {
         "id": "zklend-2025-02",
+        "caller": {"role": "eoa", "age_days": 1, "signer_quorum": None},
         "selector": "0x617ba037",
         "fn": "supply",
         "decoded_args": {"asset": "wstETH", "amount": "1"},
@@ -244,9 +273,11 @@ OOD_NEFARIOUS: list[dict] = [
         "context": "Starknet port of Compound-v2-style empty-market donation; "
                    "rounding on lending_accumulator inflates 1-wei deposit",
         "source": "https://zklend.medium.com/incident-report-feb-12-2025",
+        "signal": "donation_attack",
     },
     {
         "id": "cetus-2025-05",
+        "caller": {"role": "contract", "age_days": 0, "signer_quorum": None},
         "selector": "0x4f1ef286",
         "fn": "add_liquidity",
         "decoded_args": {"pool": "CETUS-SUI", "deltaA": "1", "deltaB": "2.2e8"},
@@ -255,8 +286,15 @@ OOD_NEFARIOUS: list[dict] = [
         "context": "Sui Move overflow on liquidity_math::get_amount_by_liquidity; "
                    "mints near-zero LP for attacker, then drains both reserves",
         "source": "https://blog.cetus.zone/post-mortem-may-22-2025",
+        "signal": "share_inflation",
     },
 ]
+
+
+_TIMELOCK = {"role": "timelock", "age_days": 1200, "signer_quorum": None}
+_LARGE_MS = {"role": "multisig", "age_days": 900, "signer_quorum": 7}
+_CONTRACT = {"role": "contract", "age_days": 600, "signer_quorum": None}
+_INST_EOA = {"role": "eoa", "age_days": 800, "signer_quorum": None}
 
 
 HARD_SAFE: list[dict] = [
@@ -265,6 +303,7 @@ HARD_SAFE: list[dict] = [
     # but isn't" not represented in the training distribution by exact match.
     {
         "id": "hard-safe-aave-rescueTokens",
+        "caller": _TIMELOCK,
         "selector": "0x4c8a2d18",
         "fn": "rescueTokens",
         "decoded_args": {"token": "USDC", "to": "aave-collector",
@@ -273,9 +312,11 @@ HARD_SAFE: list[dict] = [
         "context": "Aave admin rescues $34M of mistakenly sent USDC; "
                    "permissioned function gated on POOL_ADMIN role",
         "source": "synthetic-hard-safe",
+        "signal": "none",
     },
     {
         "id": "hard-safe-lido-oracle-rebase",
+        "caller": _CONTRACT,
         "selector": "0x9f6f6e9f",
         "fn": "handleOracleReport",
         "decoded_args": {"epochId": "245760", "clValidators": "350000",
@@ -285,9 +326,11 @@ HARD_SAFE: list[dict] = [
         "context": "Lido daily oracle quorum rebases stETH; share_price drifts "
                    "up by accrued staking rewards (legit positive step)",
         "source": "synthetic-hard-safe",
+        "signal": "none",
     },
     {
         "id": "hard-safe-convex-pool-shutdown",
+        "caller": _LARGE_MS,
         "selector": "0x80809ce0",
         "fn": "shutdownPool",
         "decoded_args": {"pid": "42"},
@@ -295,9 +338,11 @@ HARD_SAFE: list[dict] = [
         "context": "Convex booster shuts down a deprecated gauge; full LP "
                    "balance migrates to gauge contract for stakers to withdraw",
         "source": "synthetic-hard-safe",
+        "signal": "none",
     },
     {
         "id": "hard-safe-eigenlayer-queueWithdrawal",
+        "caller": _CONTRACT,
         "selector": "0xf123abcd",
         "fn": "queueWithdrawals",
         "decoded_args": {"strategy": "stETH-strat", "shares": "5.5e22"},
@@ -305,9 +350,11 @@ HARD_SAFE: list[dict] = [
         "context": "EigenLayer operator queues large unbond; 7-day delay before "
                    "completeWithdrawal can fire",
         "source": "synthetic-hard-safe",
+        "signal": "none",
     },
     {
         "id": "hard-safe-gmx-glp-redeem",
+        "caller": _INST_EOA,
         "selector": "0x9304c934",
         "fn": "unstakeAndRedeemGlp",
         "decoded_args": {"tokenOut": "USDC", "glpAmount": "3.0e22"},
@@ -316,9 +363,11 @@ HARD_SAFE: list[dict] = [
         "context": "$30M GLP redemption by an institutional LP; bounded by GLP "
                    "AUM and oracle-spread fee",
         "source": "synthetic-hard-safe",
+        "signal": "none",
     },
     {
         "id": "hard-safe-frax-amo-mint",
+        "caller": _CONTRACT,
         "selector": "0x5b16ebb7",
         "fn": "mintRedeemPart1",
         "decoded_args": {"frax_amount": "5.0e24"},
@@ -327,9 +376,11 @@ HARD_SAFE: list[dict] = [
                    "writes governed by AMO Minter ceiling — selector LOOKS like "
                    "an unauthorized mint but role-gated",
         "source": "synthetic-hard-safe",
+        "signal": "none",
     },
     {
         "id": "hard-safe-pendle-pt-redeem-maturity",
+        "caller": _INST_EOA,
         "selector": "0x0d2b1c34",
         "fn": "redeemPY",
         "decoded_args": {"PT": "PT-stETH-26DEC2025", "amount": "4.2e22"},
@@ -337,9 +388,11 @@ HARD_SAFE: list[dict] = [
         "context": "PT redemption at maturity; share_price step is the expected "
                    "yield-token settlement, not exploit-induced",
         "source": "synthetic-hard-safe",
+        "signal": "none",
     },
     {
         "id": "hard-safe-karak-epoch-finalize",
+        "caller": _CONTRACT,
         "selector": "0x7f3a2d11",
         "fn": "finalizeEpoch",
         "decoded_args": {"epoch": "183", "totalUnstake": "1.8e23"},
@@ -347,9 +400,11 @@ HARD_SAFE: list[dict] = [
         "context": "Karak finalizes epoch unstake batch; queued during a 7-day "
                    "withdrawal window so balance delta is large but expected",
         "source": "synthetic-hard-safe",
+        "signal": "none",
     },
     {
         "id": "hard-safe-maker-dsr-rate-change",
+        "caller": _TIMELOCK,
         "selector": "0x29ae8114",
         "fn": "file",
         "decoded_args": {"what": "dsr", "data": "1.000000003"},
@@ -357,9 +412,11 @@ HARD_SAFE: list[dict] = [
         "context": "Maker governance updates DSR rate; share_price drift "
                    "compounds across $4B sDAI but per-tx effect is tiny",
         "source": "synthetic-hard-safe",
+        "signal": "none",
     },
     {
         "id": "hard-safe-stargate-rebalance",
+        "caller": _CONTRACT,
         "selector": "0x252f7b01",
         "fn": "swapRemote",
         "decoded_args": {"srcChain": "arbitrum", "dstPool": "USDC",
@@ -369,9 +426,11 @@ HARD_SAFE: list[dict] = [
                    "matching liquidity arrives on dst chain (off-chain to "
                    "this tx)",
         "source": "synthetic-hard-safe",
+        "signal": "none",
     },
     {
         "id": "hard-safe-synthetix-debt-snapshot",
+        "caller": _CONTRACT,
         "selector": "0x4d4e8f3a",
         "fn": "takeDebtSnapshot",
         "decoded_args": {"period": "weekly"},
@@ -379,9 +438,11 @@ HARD_SAFE: list[dict] = [
         "context": "Synthetix weekly debt pool snapshot; share_price re-anchors "
                    "to current oracle prices — step but not directional drain",
         "source": "synthetic-hard-safe",
+        "signal": "none",
     },
     {
         "id": "hard-safe-spark-sdai-rebalance",
+        "caller": _CONTRACT,
         "selector": "0x6e553f65",
         "fn": "deposit",
         "decoded_args": {"assets": "8.0e25", "receiver": "spark-pool"},
@@ -390,9 +451,11 @@ HARD_SAFE: list[dict] = [
         "context": "Spark protocol redeposits $80M DAI from Maker D3M; "
                    "round-trip via Maker DSS, role-gated",
         "source": "synthetic-hard-safe",
+        "signal": "none",
     },
     {
         "id": "hard-safe-uniswap-v4-hook-init",
+        "caller": _TIMELOCK,
         "selector": "0xa1ee9c2c",
         "fn": "initialize",
         "decoded_args": {"poolKey": "USDC-WETH-3000", "sqrtPriceX96": "..."},
@@ -401,9 +464,11 @@ HARD_SAFE: list[dict] = [
                    "starts at 1:1 by construction (looks like donation-attack "
                    "first-deposit but is the protocol-defined init)",
         "source": "synthetic-hard-safe",
+        "signal": "none",
     },
     {
         "id": "hard-safe-jonesdao-adapter-swap",
+        "caller": _TIMELOCK,
         "selector": "0xa9b8cd14",
         "fn": "swapAdapter",
         "decoded_args": {"oldAdapter": "v1-strat", "newAdapter": "v2-strat"},
@@ -411,9 +476,11 @@ HARD_SAFE: list[dict] = [
         "context": "JonesDAO governance-approved adapter swap; vault liquidity "
                    "rotates to new strategy contract in same tx",
         "source": "synthetic-hard-safe",
+        "signal": "none",
     },
     {
         "id": "hard-safe-curve-admin-fee-claim",
+        "caller": _CONTRACT,
         "selector": "0xe2982c21",
         "fn": "claim_admin_fees",
         "decoded_args": {"pool": "3pool"},
@@ -421,6 +488,7 @@ HARD_SAFE: list[dict] = [
         "context": "Curve weekly admin fee sweep to fee distributor; large "
                    "transfer but capped by accrued admin_fee accumulator",
         "source": "synthetic-hard-safe",
+        "signal": "none",
     },
 ]
 

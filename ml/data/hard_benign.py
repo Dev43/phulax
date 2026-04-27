@@ -316,6 +316,7 @@ def generate(n: int = 120, seed: int = 11) -> list[dict]:
         for i in range(per_family):
             row = gen(rng, family_idx * per_family + i)
             row["risk_score"] = round(0.10 + rng.random() * 0.15, 3)
+            row["signal"] = "none"
             # ~10% chance: scramble selector so model can't shortcut on it.
             if rng.random() < 0.10:
                 row["selector"] = _selector(row["id"])

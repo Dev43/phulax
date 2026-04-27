@@ -25,7 +25,12 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from data.holdout import all_holdout  # noqa: E402
-from eval.harness import classify_local, classify_remote, parse_output  # noqa: E402, F401
+from eval.harness import (  # noqa: E402, F401
+    calibration_metrics,
+    classify_local,
+    classify_remote,
+    parse_output,
+)
 
 REPORT = Path(__file__).parent / "HOLDOUT_REPORT.md"
 THRESHOLD = 0.5
@@ -35,6 +40,7 @@ def per_row_metrics(rows: list[dict], preds: list[tuple[float, str, float]]) -> 
     tp = fp = fn = tn = 0
     misses: list[dict] = []
     detail: list[dict] = []
+    per_signal: dict[str, dict[str, int]] = {}
     for row, (p, tag, lat) in zip(rows, preds):
         actual_risk = row["label"] == "RISK"
         pred_risk = p >= THRESHOLD
@@ -42,9 +48,17 @@ def per_row_metrics(rows: list[dict], preds: list[tuple[float, str, float]]) -> 
         elif actual_risk and not pred_risk: fn += 1; verdict = "FN"
         elif not actual_risk and pred_risk: fp += 1; verdict = "FP"
         else: tn += 1; verdict = "TN"
+        sig = row.get("signal", "drain" if actual_risk else "none")
+        bucket = per_signal.setdefault(sig, {"hit": 0, "miss": 0})
+        if actual_risk:
+            bucket["hit" if pred_risk else "miss"] += 1
+        else:
+            # SAFE rows go in the "none" bucket; "hit" means correctly SAFE.
+            bucket["hit" if not pred_risk else "miss"] += 1
         entry = {
             "id": row["id"],
             "label": row["label"],
+            "signal": sig,
             "p": p,
             "tag": tag,
             "verdict": verdict,
@@ -59,30 +73,45 @@ def per_row_metrics(rows: list[dict], preds: list[tuple[float, str, float]]) -> 
     recall = tp / (tp + fn) if tp + fn else 0.0
     f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
     lats = [lat for _, _, lat in preds]
+    cal = calibration_metrics(rows, preds)
     return {
         "n": len(rows), "tp": tp, "fp": fp, "fn": fn, "tn": tn,
         "precision": precision, "recall": recall, "f1": f1,
         "threshold": THRESHOLD,
+        "brier": cal["brier"],
+        "ece": cal["ece"],
         "latency_ms": {
             "p50": statistics.median(lats) if lats else 0,
             "p95": sorted(lats)[int(len(lats) * 0.95) - 1] if lats else 0,
             "max": max(lats) if lats else 0,
         },
+        "per_signal": per_signal,
         "detail": detail,
         "misses": misses,
     }
 
 
 def render_table(detail: list[dict]) -> str:
-    lines = ["| id | actual | p | pred | verdict | latency (ms) |",
-             "|----|--------|---|------|---------|--------------|"]
+    lines = ["| id | actual | signal | p | pred | verdict | latency (ms) |",
+             "|----|--------|--------|---|------|---------|--------------|"]
     for d in detail:
         flag = " ❌" if d["verdict"] in ("FN", "FP") else ""
         lines.append(
-            f"| `{d['id']}` | {d['label']} | {d['p']:.3f} | {d['tag']} | "
-            f"{d['verdict']}{flag} | {d['lat_ms']:.0f} |"
+            f"| `{d['id']}` | {d['label']} | {d['signal']} | {d['p']:.3f} | "
+            f"{d['tag']} | {d['verdict']}{flag} | {d['lat_ms']:.0f} |"
         )
     return "\n".join(lines)
+
+
+def render_per_signal(per_signal: dict[str, dict[str, int]]) -> str:
+    rows = []
+    for sig, b in sorted(per_signal.items()):
+        total = b["hit"] + b["miss"]
+        rate = b["hit"] / total if total else 0.0
+        rows.append(f"| `{sig}` | {b['hit']}/{total} | {rate:.2f} |")
+    if not rows:
+        return ""
+    return "\n".join(["| signal | hit/total | rate |", "|---|---|---|", *rows])
 
 
 def write_report(m: dict, mode: str, model_ref: str) -> None:
@@ -116,6 +145,16 @@ def write_report(m: dict, mode: str, model_ref: str) -> None:
         f"- precision: **{m['precision']:.3f}**",
         f"- recall:    **{m['recall']:.3f}**",
         f"- f1:        **{m['f1']:.3f}**",
+        f"- brier:     **{m['brier']:.4f}**  _(lower = better calibrated)_",
+        f"- ece:       **{m['ece']:.4f}**  _(10-bin Expected Calibration Error)_",
+        "",
+        "## Per-signal accuracy",
+        "",
+        "Hit = correctly classified RISK rows for exploit signals, correctly "
+        "classified SAFE for `none`. Surfaces which exploit families the model "
+        "is weakest on.",
+        "",
+        render_per_signal(m["per_signal"]),
         "",
         "## Latency (ms)",
         "",
