@@ -1,0 +1,7 @@
+{
+  "neftune_noise_alpha": 5,
+  "num_train_epochs": 3,
+  "per_device_train_batch_size": 2,
+  "learning_rate": 0.0002,
+  "max_steps": 480
+}

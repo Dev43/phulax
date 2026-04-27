@@ -1,0 +1,15 @@
+{
+  "taskId": "f14b9662-62ce-47c7-a564-35df364980f2",
+  "provider": "0xA02b95Aa6886b1116C4f334eDe00381511E31A09",
+  "model": "Qwen2.5-0.5B-Instruct",
+  "datasetHash": "0xfda995e240e9e117d5e574bf15b8b7a291a74c760ff104889325c9bae4ea0a59",
+  "datasetSha256": "828d46213a7d341e69ce546c5b0f79aa1f3ac9cf9eacccc956372c7939a47382",
+  "templateVersion": "1.0.0",
+  "configHash": "d0cace0bf77646758eabf344e50e947176f7908832e76379ab7e3a154af005be",
+  "submittedAt": "2026-04-26T23:14:42.128Z",
+  "deadlineAt": "2026-04-28T23:14:42.128Z",
+  "acknowledgedAt": "2026-04-26T23:40:18.210Z",
+  "decryptedAt": "2026-04-26T23:55:10.154Z",
+  "encryptedModelPath": "/home/happy/code/hackathon/phulax/ml/artifacts/og-ft/encrypted",
+  "decryptedModelPath": "/home/happy/code/hackathon/phulax/ml/artifacts/lora/model_f14b9662-62ce-47c7-a564-35df364980f2.zip"
+}
