@@ -1,11 +1,11 @@
 {
-  "rows": 210,
-  "sha256": "828d46213a7d341e69ce546c5b0f79aa1f3ac9cf9eacccc956372c7939a47382",
-  "template_version": "1.0.0",
+  "rows": 405,
+  "sha256": "f63c57767a99afd9356a615e9f60e80389991060b200539fb9884a7b632ba088",
+  "template_version": "2.0.0",
   "base_model": "Qwen2.5-0.5B-Instruct",
   "label_distribution": {
-    "SAFE": 150,
-    "RISK": 60
+    "RISK": 135,
+    "SAFE": 270
   },
-  "built_at": "2026-04-26T22:40:48+00:00"
+  "built_at": "2026-04-27T11:40:42+00:00"
 }

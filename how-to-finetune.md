@@ -370,3 +370,6 @@ pnpm --filter @phulax/finetune safety-cron &
 ```
 
 The driver inside `ml/finetune/lora.py` shells the TS workspace under the hood when `PHULAX_FT_PROVIDER` is set — same effect as running each `pnpm --filter @phulax/finetune` step by hand, but in one place.
+
+
+<!-- curl -sS -m 15 -o /dev/null -w "%{http_code}\n"     https://64444f683f797d5fe44b68dc9249a210a56c56a3-3082.dstack-pha-use2.phala.network/  -->

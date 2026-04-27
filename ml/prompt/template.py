@@ -99,3 +99,16 @@ def chat_messages(row: dict[str, Any], with_target: bool = True) -> list[dict[st
     if with_target:
         msgs.append({"role": "assistant", "content": assistant_target(row)})
     return msgs
+
+
+# 0G fine-tuning surface accepts JSONL in {instruction, input, output} shape.
+# We fold SYSTEM into instruction so the same semantics flow through both the
+# local LoRA path (chat_messages) and the 0G path (instruction_io). The
+# provider's training pipeline templates these back into a chat format on
+# its end. Anchor: TEMPLATE_VERSION above must change if either path changes.
+def instruction_io(row: dict[str, Any]) -> dict[str, str]:
+    return {
+        "instruction": SYSTEM,
+        "input": canonicalise(row),
+        "output": assistant_target(row),
+    }

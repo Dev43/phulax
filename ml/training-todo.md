@@ -119,14 +119,56 @@ What regressed:
 - **Hard-SAFE precision didn't lift much**: 0.615 → 0.625. The model still flips 6 of 15 to RISK including aave-rescueTokens, frax-amo, karak, uniswap-v4-hook-init — most have timelock/contract callers but the model isn't weighting that signal heavily.
 - **Signal head partially collapsed**: many high-p_nefarious rows still emit `signal: "none"`, meaning the categorical head learned the prior more than the conditional. `oracle_manipulation 0/2` and `share_inflation 0/2` are the worst.
 
-## Next iteration (suggested order)
+## Next iteration — switching to 0G fine-tuning
 
-These are the levers most likely to recover the recall while keeping calibration:
+Stopping local CPU training (each retrain was ~3.5h). The repo already has the full 0G pipeline wired in `tools/finetune/` (TS broker driver over `@0glabs/0g-serving-broker`) and `ml/finetune/og_emit.py` (renders our dataset into 0G's `{instruction, input, output}` shape).
 
-1. **Class weighting in the trainer** (small change, big effect). Add `class_weight = {RISK: 2.0, SAFE: 1.0}` (or similar) to the loss so RISK examples contribute more gradient. Avoids needing more data augmentation. Implementation: subclass `Trainer` and override `compute_loss` to upweight tokens whose row label is RISK.
-2. **Bump LoRA capacity back up**: rank 16 (alpha 32) on `q_proj, v_proj` only. ~1.1M params — 2× current, still 3× below the original. The signal head needs more capacity.
-3. **Per-signal augmentation**: the families failing (`oracle_manipulation`, `share_inflation`) have only 16 + 16 base+aug rows. Bump those families' `copies_per_base` to 16 specifically.
-4. **Drop signal output OR train a separate head**: forcing one model to do regression + 8-way classification on 405 rows is too much. Either drop signal entirely (back to `{p_nefarious}` only) or train a second small classifier purely on signal given p_nefarious is high.
-5. **Then revisit calibration**: once raw classification is in shape, fit a temperature scalar on a held-out calibration split.
+What's already built and tested:
 
-If the user wants to ship now: the v2 model is defensible because it's the first one with calibrated probabilities, and the per-signal table tells the agent's risk aggregator which signals are reliable (`reentrancy`, `sig_bypass`, `drain`, `donation_attack`) and which to ignore (`oracle_manipulation`, `share_inflation`) until the next retrain.
+- `ml/artifacts/og-ft/dataset.jsonl` — 405 rows in 0G shape, derived from the same `data/dataset.jsonl` v3 was about to consume locally
+- `ml/artifacts/og-ft/manifest.json` — sha256 `f63c57767a99afd9…`, template `2.0.0`, label distribution RISK=135 / SAFE=270
+- `tools/finetune/src/config.ts:LOCKED_TRAINING_CONFIG` — 3 epochs, batch 2, lr 2e-4, max_steps 480 (covers our 405-row dataset comfortably)
+- `tools/finetune` package builds clean (typecheck just verified)
+
+Pre-flight (one time):
+
+1. Set `PHULAX_FT_PRIVATE_KEY` in `ml/.env` (a *funded* 0G testnet wallet — must NOT be the agent runtime key per `CLAUDE.md`)
+2. (optional) set `PHULAX_FT_RPC_URL` (defaults to `https://evmrpc-testnet.0g.ai`)
+
+Submit pipeline:
+
+```bash
+# from repo root
+pnpm --filter @phulax/finetune discover                     # pin a provider 0xPROV
+pnpm --filter @phulax/finetune fund -- --provider 0xPROV    # fund ledger + sub-account
+pnpm --filter @phulax/finetune submit -- --provider 0xPROV  # submits the 405-row job
+pnpm --filter @phulax/finetune safety-cron &                # 47h ack watchdog
+pnpm --filter @phulax/finetune poll                         # blocks until Finished
+pnpm --filter @phulax/finetune ack                          # decrypts adapter
+
+# adapter lands at ml/artifacts/lora/adapter_model.safetensors
+( cd ml && uv run python -m finetune.merge_and_quantize )
+
+# eval against the new merged weights
+( cd ml && MODEL_DIR=./artifacts/merged uv run python -m eval.harness )
+( cd ml && MODEL_DIR=./artifacts/merged uv run python -m eval.holdout )
+```
+
+Notes on what we lose vs the local v3 plan:
+
+- The `LOCKED_TRAINING_CONFIG` only exposes 5 keys per 0G's rigid schema (`neftune_noise_alpha`, `num_train_epochs`, `per_device_train_batch_size`, `learning_rate`, `max_steps`). No way to pass class weights or LoRA rank — the provider picks those. So the **class weighting** lever from the previous iteration plan is not available on this path. If recall is still low after the 0G run, the next move is either:
+  - upsample RISK rows in the JSONL before submission (cheap workaround for class weights)
+  - or bump `copies_per_base` further in `data/exploits.py` so the natural ratio approaches 1:1
+
+- 0G charges per training step. 3 epochs × 162 steps/epoch ≈ 486 steps, so we'll hit the 480 cap. That's a quirk worth flagging — 5 epochs would need `max_steps` ≥ 810 (and a corresponding `LOCKED_TRAINING_CONFIG` bump).
+
+The local-training path (`finetune/lora.py` with `WeightedTrainer`, `WeightedCollator`, rank 16 / alpha 32) stays in the tree as the fallback. Re-enable by running `python -m finetune.lora` without the OG pipeline.
+
+## Outstanding levers (apply post-0G run if needed)
+
+1. **Upsample RISK in the JSONL before submitting** (workaround for absent class-weight knob on 0G).
+2. **Per-signal augmentation** for `oracle_manipulation` and `share_inflation` families (currently 16 + 16 base+aug rows each — both at 0/2 holdout).
+3. **Drop signal output OR train a separate head**: forcing one 0.5B model to do regression + 8-way classification on 405 rows is too much.
+4. **Calibration**: once classification is in shape, fit a temperature scalar on a held-out calibration split, save to `artifacts/calibration.json`, apply at eval and inference time.
+
+If the user wants to ship now: v2 weights at `ml/artifacts/merged/` are defensible because they're the first model with calibrated probabilities, and the per-signal table tells the agent's risk aggregator which signals are reliable (`reentrancy`, `sig_bypass`, `drain`, `donation_attack`) and which to ignore (`oracle_manipulation`, `share_inflation`) until the next retrain.
