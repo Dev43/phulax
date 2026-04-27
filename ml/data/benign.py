@@ -58,14 +58,27 @@ def generate(n: int = 150, seed: int = 7) -> list[dict]:
         elif fn == "repay":
             deltas["borrow"] = f"-{amount}"
 
+        # Routine activity is overwhelmingly EOAs with established history; a
+        # smaller share is contracts (router calls, smart wallets).
+        caller_role = rng.choices(
+            ["eoa", "contract"], weights=[0.85, 0.15], k=1
+        )[0]
         row = {
             "id": f"benign-{i:04d}",
+            "caller": {
+                "role": caller_role,
+                "age_days": int(rng.uniform(30, 1500)),
+                "signer_quorum": None,
+            },
             "selector": SELECTORS[fn],
             "fn": fn,
             "decoded_args": {"asset": asset, "amount": amount},
             "balance_delta": deltas,
             "context": f"routine {fn} on {asset}",
             "source": "synthetic-benign",
+            "signal": "none",
+            # Routine SAFE: spread 0.02-0.08 so the head learns a range, not 0.03.
+            "risk_score": round(0.02 + rng.random() * 0.06, 3),
         }
         # Slightly randomise selector so it isn't a free shortcut for the model.
         if rng.random() < 0.08:

@@ -260,164 +260,166 @@ OOD_NEFARIOUS: list[dict] = [
 
 
 HARD_SAFE: list[dict] = [
+    # Fresh holdout — distinct protocols/scenarios from hard_benign.py training
+    # generator. Chosen so each row tests a *different* axis of "looks risky
+    # but isn't" not represented in the training distribution by exact match.
     {
-        "id": "hard-safe-aave-treasury-sweep",
-        "selector": "0xa9059cbb",
-        "fn": "transfer",
-        "decoded_args": {"to": "aave-collector-multisig", "amount": "4.5e25"},
-        "balance_delta": {"reserves": "-4.5e25"},
-        "context": "scheduled AIP-executed sweep of accrued protocol fees from "
-                   "Aave Collector to Ecosystem Reserve; large but routine",
+        "id": "hard-safe-aave-rescueTokens",
+        "selector": "0x4c8a2d18",
+        "fn": "rescueTokens",
+        "decoded_args": {"token": "USDC", "to": "aave-collector",
+                         "amount": "3.4e22"},
+        "balance_delta": {"reserves": "-3.4e22"},
+        "context": "Aave admin rescues $34M of mistakenly sent USDC; "
+                   "permissioned function gated on POOL_ADMIN role",
         "source": "synthetic-hard-safe",
     },
     {
-        "id": "hard-safe-chainlink-eth-crash",
-        "selector": "0xa9059cbb",
-        "fn": "transmit",
-        "decoded_args": {"feed": "ETH-USD", "answer": "1.2e11"},
-        "balance_delta": {"oracle_price": "-0.34x", "share_price": "0",
+        "id": "hard-safe-lido-oracle-rebase",
+        "selector": "0x9f6f6e9f",
+        "fn": "handleOracleReport",
+        "decoded_args": {"epochId": "245760", "clValidators": "350000",
+                         "clBalance": "1.12e25"},
+        "balance_delta": {"share_price": "+0.0028", "reserves": "+1.4e22",
+                          "oracle_price": "+0.0011x"},
+        "context": "Lido daily oracle quorum rebases stETH; share_price drifts "
+                   "up by accrued staking rewards (legit positive step)",
+        "source": "synthetic-hard-safe",
+    },
+    {
+        "id": "hard-safe-convex-pool-shutdown",
+        "selector": "0x80809ce0",
+        "fn": "shutdownPool",
+        "decoded_args": {"pid": "42"},
+        "balance_delta": {"reserves": "-7.8e22", "share_price": "0"},
+        "context": "Convex booster shuts down a deprecated gauge; full LP "
+                   "balance migrates to gauge contract for stakers to withdraw",
+        "source": "synthetic-hard-safe",
+    },
+    {
+        "id": "hard-safe-eigenlayer-queueWithdrawal",
+        "selector": "0xf123abcd",
+        "fn": "queueWithdrawals",
+        "decoded_args": {"strategy": "stETH-strat", "shares": "5.5e22"},
+        "balance_delta": {"reserves": "-5.5e22", "share_price": "0"},
+        "context": "EigenLayer operator queues large unbond; 7-day delay before "
+                   "completeWithdrawal can fire",
+        "source": "synthetic-hard-safe",
+    },
+    {
+        "id": "hard-safe-gmx-glp-redeem",
+        "selector": "0x9304c934",
+        "fn": "unstakeAndRedeemGlp",
+        "decoded_args": {"tokenOut": "USDC", "glpAmount": "3.0e22"},
+        "balance_delta": {"reserves": "-3.0e22", "share_price": "-0.002",
                           "utilization": "+0.04"},
-        "context": "legitimate Chainlink OCR2 transmit during ETH flash-crash; "
-                   "large oracle_price move but published by trusted aggregator",
+        "context": "$30M GLP redemption by an institutional LP; bounded by GLP "
+                   "AUM and oracle-spread fee",
         "source": "synthetic-hard-safe",
     },
     {
-        "id": "hard-safe-whale-deposit",
-        "selector": "0x617ba037",
-        "fn": "supply",
-        "decoded_args": {"asset": "USDC", "amount": "5.0e25"},
-        "balance_delta": {"reserves": "+5.0e25", "utilization": "-0.18",
-                          "share_price": "+0.0001"},
-        "context": "single-block $50M USDC deposit from a Fireblocks-tagged "
-                   "institutional wallet; share_price barely moves",
+        "id": "hard-safe-frax-amo-mint",
+        "selector": "0x5b16ebb7",
+        "fn": "mintRedeemPart1",
+        "decoded_args": {"frax_amount": "5.0e24"},
+        "balance_delta": {"reserves": "+5.0e24", "share_price": "0"},
+        "context": "Frax AMO mints into Curve metapool; permissioned controller "
+                   "writes governed by AMO Minter ceiling — selector LOOKS like "
+                   "an unauthorized mint but role-gated",
         "source": "synthetic-hard-safe",
     },
     {
-        "id": "hard-safe-liquidation-cascade",
-        "selector": "0x96cd4ddb",
-        "fn": "liquidationCall",
-        "decoded_args": {"collateral": "WETH", "debt": "USDC",
-                         "user": "underwater", "amount": "1.8e22"},
-        "balance_delta": {"reserves": "-1.8e22", "borrow": "-1.8e22",
-                          "utilization": "-0.21", "oracle_price": "-0.12x"},
-        "context": "routine liquidation during high volatility; both legs match "
-                   "and HF crosses from <1 to >1 in the same tx",
+        "id": "hard-safe-pendle-pt-redeem-maturity",
+        "selector": "0x0d2b1c34",
+        "fn": "redeemPY",
+        "decoded_args": {"PT": "PT-stETH-26DEC2025", "amount": "4.2e22"},
+        "balance_delta": {"share_price": "-0.124", "reserves": "-4.2e22"},
+        "context": "PT redemption at maturity; share_price step is the expected "
+                   "yield-token settlement, not exploit-induced",
         "source": "synthetic-hard-safe",
     },
     {
-        "id": "hard-safe-yearn-v3-rebalance",
-        "selector": "0xb8a878a8",
-        "fn": "updateMaxDebtForStrategy",
-        "decoded_args": {"strategy": "compound-v3-strat", "newDebt": "0"},
-        "balance_delta": {"reserves": "-3.2e22", "share_price": "+0.0003"},
-        "context": "yearn v3 vault rotates strategies; full debt withdraw from "
-                   "old strat then redeposit via new one (next tx)",
+        "id": "hard-safe-karak-epoch-finalize",
+        "selector": "0x7f3a2d11",
+        "fn": "finalizeEpoch",
+        "decoded_args": {"epoch": "183", "totalUnstake": "1.8e23"},
+        "balance_delta": {"reserves": "-1.8e23", "share_price": "0"},
+        "context": "Karak finalizes epoch unstake batch; queued during a 7-day "
+                   "withdrawal window so balance delta is large but expected",
         "source": "synthetic-hard-safe",
     },
     {
-        "id": "hard-safe-maker-psm-swap",
-        "selector": "0x078dfbe7",
-        "fn": "buyGem",
-        "decoded_args": {"usr": "trading-firm", "gemAmt": "2.0e13"},
-        "balance_delta": {"reserves": "-2.0e22", "share_price": "0",
-                          "utilization": "+0.0"},
-        "context": "$20M PSM USDC→DAI swap; touches reserves but bounded by "
-                   "PSM debt ceiling and 1:1 invariant",
+        "id": "hard-safe-maker-dsr-rate-change",
+        "selector": "0x29ae8114",
+        "fn": "file",
+        "decoded_args": {"what": "dsr", "data": "1.000000003"},
+        "balance_delta": {"share_price": "+0.0014", "utilization": "0"},
+        "context": "Maker governance updates DSR rate; share_price drift "
+                   "compounds across $4B sDAI but per-tx effect is tiny",
         "source": "synthetic-hard-safe",
     },
     {
-        "id": "hard-safe-bridge-mint-completeTransfer",
-        "selector": "0xc6878519",
-        "fn": "completeTransfer",
-        "decoded_args": {"vaa": "0xguardian-quorum...", "amount": "8.0e22"},
-        "balance_delta": {"reserves": "+8.0e22"},
-        "context": "Wormhole VAA verified by guardian quorum; legitimate inbound "
-                   "mint after a cross-chain bridge - same selector as "
-                   "wormhole-2022-02 but signature is valid",
+        "id": "hard-safe-stargate-rebalance",
+        "selector": "0x252f7b01",
+        "fn": "swapRemote",
+        "decoded_args": {"srcChain": "arbitrum", "dstPool": "USDC",
+                         "amount": "9.5e22"},
+        "balance_delta": {"reserves": "-9.5e22", "share_price": "+0.0001"},
+        "context": "Stargate cross-chain pool rebalance; reserves move out but "
+                   "matching liquidity arrives on dst chain (off-chain to "
+                   "this tx)",
         "source": "synthetic-hard-safe",
     },
     {
-        "id": "hard-safe-curve-gauge-rebalance",
-        "selector": "0x4f02c420",
-        "fn": "checkpoint_gauge",
-        "decoded_args": {"gauge": "3pool"},
-        "balance_delta": {"share_price": "+0.0007", "utilization": "+0.001"},
-        "context": "weekly Curve gauge checkpoint; CRV emissions update changes "
-                   "vault accounting but no token movement",
+        "id": "hard-safe-synthetix-debt-snapshot",
+        "selector": "0x4d4e8f3a",
+        "fn": "takeDebtSnapshot",
+        "decoded_args": {"period": "weekly"},
+        "balance_delta": {"share_price": "-0.018", "utilization": "+0.003"},
+        "context": "Synthetix weekly debt pool snapshot; share_price re-anchors "
+                   "to current oracle prices — step but not directional drain",
         "source": "synthetic-hard-safe",
     },
     {
-        "id": "hard-safe-compound-rewards-claim",
-        "selector": "0xa9059cbb",
-        "fn": "claim",
-        "decoded_args": {"comet": "cUSDCv3", "src": "user", "shouldAccrue": "true"},
-        "balance_delta": {"reserves": "-9.4e21"},
-        "context": "user claims 9.4k COMP accrued over 3 months; transfer-shape "
-                   "delta but emitted by Comet rewards contract",
+        "id": "hard-safe-spark-sdai-rebalance",
+        "selector": "0x6e553f65",
+        "fn": "deposit",
+        "decoded_args": {"assets": "8.0e25", "receiver": "spark-pool"},
+        "balance_delta": {"reserves": "+8.0e25", "share_price": "+0.0",
+                          "utilization": "-0.05"},
+        "context": "Spark protocol redeposits $80M DAI from Maker D3M; "
+                   "round-trip via Maker DSS, role-gated",
         "source": "synthetic-hard-safe",
     },
     {
-        "id": "hard-safe-stkAAVE-slash",
-        "selector": "0xc4d66de8",
-        "fn": "slash",
-        "decoded_args": {"amount": "1.5e23", "to": "shortfall-recipient"},
-        "balance_delta": {"reserves": "-1.5e23", "share_price": "-0.30"},
-        "context": "Aave SafetyModule slash executed by governance after "
-                   "shortfall vote; large negative share_price step but "
-                   "governance-signed",
+        "id": "hard-safe-uniswap-v4-hook-init",
+        "selector": "0xa1ee9c2c",
+        "fn": "initialize",
+        "decoded_args": {"poolKey": "USDC-WETH-3000", "sqrtPriceX96": "..."},
+        "balance_delta": {"share_price": "+1.0", "reserves": "+1"},
+        "context": "Uniswap v4 pool initialised with treasury seed; share_price "
+                   "starts at 1:1 by construction (looks like donation-attack "
+                   "first-deposit but is the protocol-defined init)",
         "source": "synthetic-hard-safe",
     },
     {
-        "id": "hard-safe-new-market-init",
-        "selector": "0x617ba037",
-        "fn": "supply",
-        "decoded_args": {"asset": "rsETH", "amount": "1.0e21"},
-        "balance_delta": {"share_price": "+0.0", "reserves": "+1.0e21",
-                          "utilization": "0"},
-        "context": "first deposit on freshly listed rsETH market - reserve seed "
-                   "by treasury pre-funded the empty market so share_price "
-                   "stays 1:1 (mitigation against donation attacks)",
+        "id": "hard-safe-jonesdao-adapter-swap",
+        "selector": "0xa9b8cd14",
+        "fn": "swapAdapter",
+        "decoded_args": {"oldAdapter": "v1-strat", "newAdapter": "v2-strat"},
+        "balance_delta": {"reserves": "-2.6e22", "share_price": "+0.0001"},
+        "context": "JonesDAO governance-approved adapter swap; vault liquidity "
+                   "rotates to new strategy contract in same tx",
         "source": "synthetic-hard-safe",
     },
     {
-        "id": "hard-safe-liquidity-migration",
-        "selector": "0xbaa2abde",
-        "fn": "removeLiquidity",
-        "decoded_args": {"pair": "USDC-DAI-v2", "liquidity": "8.0e22"},
-        "balance_delta": {"reserves": "-8.0e22", "share_price": "+0.0002"},
-        "context": "DAO-approved migration of LP from Uniswap v2 → v3; large "
-                   "outflow followed by addLiquidity on v3 next tx",
-        "source": "synthetic-hard-safe",
-    },
-    {
-        "id": "hard-safe-pol-twap-harvest",
-        "selector": "0x372500ab",
-        "fn": "claimRewards",
-        "decoded_args": {"recipient": "ops-multisig", "amount": "2.2e22"},
-        "balance_delta": {"reserves": "-2.2e22", "share_price": "0"},
-        "context": "protocol-owned-liquidity TWAP harvest paid to ops multisig "
-                   "via timelocked withdrawAdmin path",
-        "source": "synthetic-hard-safe",
-    },
-    {
-        "id": "hard-safe-chainlink-feed-migration",
-        "selector": "0xa9059cbb",
-        "fn": "proposeAggregator",
-        "decoded_args": {"feed": "stETH-ETH", "newAgg": "0xnew..."},
-        "balance_delta": {"oracle_price": "+0.022x"},
-        "context": "Chainlink scheduled aggregator migration; small step in "
-                   "reported price between old and new median",
-        "source": "synthetic-hard-safe",
-    },
-    {
-        "id": "hard-safe-timelock-treasury-transfer",
-        "selector": "0xa9059cbb",
-        "fn": "transfer",
-        "decoded_args": {"to": "ops-multisig", "amount": "1.0e26"},
-        "balance_delta": {"reserves": "-1.0e26"},
-        "context": "$100M treasury sweep executed by 7-day timelock after "
-                   "successful on-chain vote; same selector + magnitude as "
-                   "harmony-2022-06 but origin is the timelock contract",
+        "id": "hard-safe-curve-admin-fee-claim",
+        "selector": "0xe2982c21",
+        "fn": "claim_admin_fees",
+        "decoded_args": {"pool": "3pool"},
+        "balance_delta": {"reserves": "-1.4e22", "share_price": "+0.0"},
+        "context": "Curve weekly admin fee sweep to fee distributor; large "
+                   "transfer but capped by accrued admin_fee accumulator",
         "source": "synthetic-hard-safe",
     },
 ]
