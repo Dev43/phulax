@@ -1,13 +1,13 @@
 # Phulax inference server.
 #
-# Phase 1: stub. Builds a tiny FastAPI image that satisfies the /classify
-# contract so Track A's E2E synthetic workflow can call it.
+# Phase 2: transformers-served Qwen2.5-0.5B + merged LoRA. The image is uniform
+# regardless of phase — server.py stays in stub mode unless PHULAX_MODEL_DIR
+# (mounted at runtime, or baked in via a downstream stage that fetches CIDs
+# from ml/artifacts.json) resolves to a transformers checkpoint.
 #
-# Phase 2 (after ml/artifacts.json publishes CIDs): a second stage will
-# fetch merged weights + tokenizer + config from 0G Storage at boot, hash
-# them into PHULAX_MODEL_HASH, and start llama.cpp HTTP server alongside
-# this FastAPI process (or replace _classify() with a llama.cpp client call).
-# The image stays reproducible from ml/artifacts.json alone.
+# Build from the REPO ROOT so the frozen prompt template is in the build
+# context:
+#   docker build -f inference/Dockerfile -t phulax-inference .
 
 FROM python:3.11-slim AS runtime
 
@@ -18,14 +18,22 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-COPY requirements.txt ./
+COPY inference/requirements.txt ./
 RUN pip install -r requirements.txt
 
-COPY server.py ./
+# Frozen prompt template — same file fine-tune + eval + this server import,
+# version pinned by TEMPLATE_VERSION inside the file. Mirrored at /app/ml so
+# the sys.path manipulation in server.py resolves identically to dev runs.
+COPY ml/prompt/__init__.py /app/ml/prompt/__init__.py
+COPY ml/prompt/template.py /app/ml/prompt/template.py
 
-ENV PHULAX_INFERENCE_PHASE=stub \
+COPY inference/server.py ./
+
+ENV PHULAX_INFERENCE_PHASE=auto \
     PHULAX_MODEL_HASH=stub
 # PHULAX_INFERENCE_HMAC_KEY MUST be supplied at runtime (no default in image).
+# PHULAX_MODEL_DIR (optional): mount the merged checkpoint here to enable
+# real inference. Without it, /classify falls back to the deterministic stub.
 
 EXPOSE 8000
 

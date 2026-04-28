@@ -707,3 +707,31 @@ All six tracks (A keeperhub-0g, B contracts, C ml, D inference, E agent, F web) 
 - No live submit yet — needs `PHULAX_FT_PRIVATE_KEY` funded on Galileo and a chosen provider. Discover step verified shape, end-to-end run is gated on funds.
 - `python -m finetune.merge_and_quantize` reads from `artifacts/lora/adapter_model.safetensors`; works whether the file came from the local PEFT path or the 0G ack — no change needed there.
 - `ml/upload/og_storage.py` doesn't yet append the `model_publish` 0G Storage Log entry described in §10.1 Stage C step 4. Add when the first real run produces a CID set.
+
+### 2026-04-28 — Track C Colab path + Track D Phase 2 (real-weights inference)
+
+**Track C — Colab fine-tune path landed.**
+- `ml/finetune/colab_train.ipynb` mirrors `ml/finetune/lora.py` (rank 16, α 32, lr 2e-4, 10 epochs, MAX_LEN 768, RISK 2× / SAFE 1× class weighting, frozen TEMPLATE_VERSION 2.0.0 inlined). Runs on a free Colab T4 in ~12-20 min, sidestepping the 0G broker + 48h ack window. Adapter zips back to `ml/artifacts/lora/`; downstream `merge_and_quantize` / `eval` / `upload` are unchanged.
+- `how-to-finetune.md` Step 2a documents the alternative path. Step 9 onward is shared.
+- `ml/finetune/lora.py` EPOCHS bumped 5 → 10 to match.
+
+**Track D Phase 2 — real transformers serving.**
+- `inference/server.py` swapped the stub `_classify` for a transformers call against `PHULAX_MODEL_DIR` (defaults to `ml/artifacts/merged/`). At boot: `model_hash = sha256(model.safetensors)` (matches what `ml/upload/og_storage.py` will publish), logged once.
+- Falls back to the stub deterministically when `PHULAX_MODEL_DIR` isn't set — keeps the shape/HMAC tests fast and dep-free, and means a Docker run without a mounted model is still a working endpoint.
+- Imports `chat_messages` + `SIGNALS` + `TEMPLATE_VERSION` from `ml/prompt/template.py` via a `sys.path` shim. Dockerfile updated to build from the repo root and copy `ml/prompt/` into `/app/ml/prompt/` so the import resolves identically in the container.
+- `_parse_output` extracts the first balanced JSON object from the model response and clamps `p_nefarious` to `[0,1]`; on any parse failure returns a neutral SAFE so the agent aggregator still proceeds.
+- `tag` now derives from `p_nefarious >= 0.5` rather than `signal != "none"`. The model occasionally emits `signal: "none"` alongside a high `p_nefarious` (consistent with the eval REPORT showing 0.615 P / 0.923 R — recall-leaning); raw `p_nefarious` and `signal` are both kept in the receipt so the discrepancy is auditable.
+- Probe results against the merged adapter: oracle-manipulation drain → 0.930, admin rug → 0.932, benign supply → 0.084. Functionally usable — the agent's classifier weight `(p − 0.5) × 0.8` caps the classifier-alone contribution to 0.344, which still requires corroboration to cross the 0.7 fire threshold (defensible).
+- `inference/test_server.py` extended with an opt-in `test_real_inference_smoke` gated on `PHULAX_SMOKE_MODEL_DIR`; default suite (4 stub tests) stays in stub mode and runs in <1s. Full suite (5/5) green: stub tests in 0.6s, real-model smoke in ~17s including model load.
+
+**Surprises:**
+- Initial probe revealed the `signal` field disagreeing with `p_nefarious` for the tuned weights. Kept both fields raw in the receipt rather than coercing — gives the eval harness something to hill-climb on next iteration without changing the wire shape.
+- `model.safetensors` is the only weight file in the merged checkpoint, so `_hash_model_dir` short-circuits on it. If `merge_and_quantize` ever shards across multiple files, the fallback hashes every file deterministically.
+- `requirements.txt` now pins `torch==2.4.1` + `transformers==4.46.3` + `accelerate==1.1.1`. ~2 GB image vs the ~150 MB stub image; acceptable for the demo.
+
+**Open:**
+- `ml/upload/og_storage.py` still hasn't run — `ml/artifacts.json` doesn't exist yet, so the iNFT mint flow has no `classifier_pointer` to anchor to. Next step: run Step 11 from `how-to-finetune.md` once 0G Storage credentials are wired.
+- `eval/REPORT.md` (timestamped 2026-04-28 02:23 UTC) was generated against an earlier run; re-run `python -m eval.harness` to get fresh numbers against the 10-epoch / rank 16 weights now in `ml/artifacts/merged/`.
+- The fine-tuned model's signal-vs-p_nefarious incoherence is a hill-climb candidate for the next training pass (bigger dataset, signal-targeted curriculum) but doesn't block the demo.
+
+**Strategy.md:** no change needed; Phase-2 wiring matches §3 architecture diagram and §10 self-hosted-classifier story.
