@@ -1,6 +1,6 @@
 # Phulax classifier eval report
 
-Generated: 2026-04-28 02:23:42 UTC
+Generated: 2026-04-28 12:28:45 UTC
 
 - mode: `local`
 - model: `./artifacts/lora`
@@ -11,22 +11,22 @@ Generated: 2026-04-28 02:23:42 UTC
 
 |             | pred SAFE | pred RISK |
 |-------------|-----------|-----------|
-| actual SAFE | 40 | 15 |
+| actual SAFE | 47 | 8 |
 | actual RISK | 2 | 24 |
 
 ## Metrics
 
-- precision: **0.615**
+- precision: **0.750**
 - recall:    **0.923**
-- f1:        **0.738**
-- brier:     **0.1913**  _(lower = better calibrated, 0 = perfect)_
-- ece:       **0.2088**  _(10-bin Expected Calibration Error)_
+- f1:        **0.828**
+- brier:     **0.1148**  _(lower = better calibrated, 0 = perfect)_
+- ece:       **0.1092**  _(10-bin Expected Calibration Error)_
 
 ## Latency (ms)
 
-- p50: 2297.8
-- p95: 2444.8
-- max: 4798.0
+- p50: 2297.3
+- p95: 2535.2
+- max: 2709.7
 
 ## Verdict
 
