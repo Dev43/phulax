@@ -15,6 +15,7 @@ export default defineConfig({
         "FakeLendingPool.sol/**",
         "FakePoolAdapter.sol/**",
         "IAdapter.sol/**",
+        "DemoAsset.sol/**",
       ],
     }),
   ],

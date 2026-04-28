@@ -18,6 +18,7 @@ const targets = [
   "FakeLendingPool",
   "FakePoolAdapter",
   "IAdapter",
+  "DemoAsset",
 ];
 
 for (const name of targets) {

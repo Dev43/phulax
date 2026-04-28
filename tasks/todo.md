@@ -735,3 +735,34 @@ All six tracks (A keeperhub-0g, B contracts, C ml, D inference, E agent, F web) 
 - The fine-tuned model's signal-vs-p_nefarious incoherence is a hill-climb candidate for the next training pass (bigger dataset, signal-targeted curriculum) but doesn't block the demo.
 
 **Strategy.md:** no change needed; Phase-2 wiring matches §3 architecture diagram and §10 self-hosted-classifier story.
+
+### 2026-04-28 — Track B testnet-deploy prep (broadcast pending user-funded key)
+
+**Shipped (everything that can land without a funded key):**
+- `forge install --no-git foundry-rs/forge-std OpenZeppelin/openzeppelin-contracts` re-vendored under `contracts/lib/` (gitignored). `forge build` clean; 11/11 tests still pass.
+- `src/DemoAsset.sol` — permissionless-mint ERC20 used as the testnet demo asset. Lets the web UI self-mint a balance per session instead of relying on a faucet drip per demo run. Test mock at `test/mocks/MockERC20.sol` left as-is to keep the test surface stable.
+- `script/Deploy.s.sol` rewritten to be self-contained: deploys `Hub`, `PhulaxINFT`, `FakeLendingPool`, fresh `DemoAsset`, `FakePoolAdapter`, and a `PhulaxAccount` for the deployer in one transaction set. Pool is seeded with `POOL_SEED_AMOUNT` (default 100e18) of DemoAsset so a demo attacker has reserves to drain. Hub registration + risk policy applied at deploy time.
+- `wagmi.config.ts` + `scripts/extract-abis.mjs` extended to include `DemoAsset`. Re-ran both:
+  - `contracts/generated/wagmi.ts` — 981 lines, all 7 typed ABIs (Track E + F consume this).
+  - `contracts/abis/{PhulaxAccount,Hub,PhulaxINFT,FakeLendingPool,FakePoolAdapter,IAdapter,DemoAsset}.json` — paste-in fallback for KeeperHub `abi-with-auto-fetch`.
+- `.env.example` (new) + `README.md` "Deploy to 0G testnet" section rewritten with the self-contained flow + dry-run step.
+- **Dry-run against live `https://evmrpc-testnet.0g.ai` succeeded.** Simulation produced sane addresses, ~5.47M gas, ~0.022 0G estimated total cost. No broadcast.
+
+**⚠ Chain id discrepancy — needs attention before E2E:**
+- `cast chain-id --rpc-url https://evmrpc-testnet.0g.ai` reports **16602**, not the **16601** recorded in CLAUDE.md, todo.md §1.3, the Track A review, and `keeperhub/lib/rpc/rpc-config.ts` / `keeperhub/scripts/seed/seed-chains.ts`. 0G migrated the testnet chain id since the seed was committed.
+- Deploy itself unaffected (foundry derives from RPC). What needs updating:
+  - `keeperhub/` chain seeds (16601 → 16602 for Galileo). Mainnet 16661 likely unchanged but worth re-confirming.
+  - Agent + web wagmi configs that hardcode the chain id.
+  - CLAUDE.md / todo.md / STRATEGY.md prose.
+- Treat this as a one-line fix across each location once the deploy lands; not blocking the broadcast.
+
+**Pending user action (out of scope for an autonomous step):**
+- Provide funded `PRIVATE_KEY` for Galileo (faucet: https://faucet.0g.ai). Need ~0.025 0G with headroom.
+- Pick + fund the `AGENT_ADDRESS` (single-selector guardian key, separate from deployer per §3 invariant).
+- Run `forge script script/Deploy.s.sol:Deploy --rpc-url zerog_testnet --broadcast --verify`.
+- Capture the printed addresses into agent `.env`, web `.env.local`, and the KH workflow JSON.
+
+**Open after broadcast:**
+- Hub address goes into web `.env.local` (`NEXT_PUBLIC_HUB_ADDRESS`); PhulaxAccount address goes to the agent's `PHULAX_ACCOUNT_ADDRESS`.
+- KH workflow `{{TODO_FAKE_LENDING_POOL_ADDRESS}}` slot finally gets a value.
+- Optional: mint DemoAsset to the deployer + a demo "attacker" key so the demo flow can run end-to-end without a separate funding step.
