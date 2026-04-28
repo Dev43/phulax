@@ -10,8 +10,8 @@ import { privateKeyToAccount } from "viem/accounts";
 import { config } from "../config.js";
 
 export const zeroG = defineChain({
-  id: 16600,
-  name: "0G Testnet",
+  id: 16602,
+  name: "0G Galileo Testnet",
   nativeCurrency: { name: "0G", symbol: "0G", decimals: 18 },
   rpcUrls: { default: { http: [config().rpcUrl] } },
 });

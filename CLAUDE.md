@@ -67,7 +67,7 @@ These come from `tasks/todo.md` §3 and §5. They are non-negotiable:
 Cuts are explicit in `STRATEGY.md` §8 and `tasks/todo.md` §13:
 
 - **x402 / MPP autonomous payment is cut from v1.** One-line roadmap mention only.
-- **No multi-chain.** 0G testnet (Galileo, chain id 16601) for the demo.
+- **No multi-chain.** 0G testnet (Galileo, chain id 16602) for the demo.
 - **No fancy frontend.** One screen. The streaming logs panel is the credibility moment.
 - **FakeLendingPool is not a KeeperHub `protocols/` plugin.** It's a deployed demo contract; workflows consume its ABI via `abi-with-auto-fetch`, with `contracts/abis/*.json` as paste-in fallback.
 

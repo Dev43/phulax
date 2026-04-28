@@ -5,7 +5,7 @@ Synthesized from `tasks/todo.md` Review sections and §491 cross-track snapshot 
 ## Done
 
 ### Track A — KeeperHub × 0G bridge (`keeperhub/`, branch `feature/0g-integration`)
-- [x] A1 chain seeds: 0G Mainnet (16661) + Galileo Testnet (16601) wired in `lib/rpc/rpc-config.ts` + `scripts/seed/seed-chains.ts`
+- [x] A1 chain seeds: 0G Mainnet (16661) + Galileo Testnet (16602) wired in `lib/rpc/rpc-config.ts` + `scripts/seed/seed-chains.ts`
 - [x] A2 `plugins/0g-storage`: `kv-get`, `kv-put`, `log-append` via Flow-contract writes (org KeeperHub wallet signs)
 - [x] A3 `plugins/0g-compute`: `sealed-inference` action with `acknowledgeProviderSigner` + `processResponse` verification
 - [x] A4 / A6 workflow skeleton: `specs/0g-integration/per-tx-detection.workflow.json`

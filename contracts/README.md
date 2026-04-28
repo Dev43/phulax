@@ -33,7 +33,7 @@ forge test -vv
 Phulax (victim loses funds) and once with the agent firing first (≥ 99%
 recovery).
 
-## Deploy to 0G testnet (Galileo, chain id 16601)
+## Deploy to 0G testnet (Galileo, chain id 16602)
 
 `Deploy.s.sol` is self-contained: it deploys `Hub`, `PhulaxINFT`,
 `FakeLendingPool`, a fresh `DemoAsset` ERC20, the `FakePoolAdapter`,

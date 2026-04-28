@@ -9,7 +9,7 @@ import {FakeLendingPool} from "../src/pools/FakeLendingPool.sol";
 import {FakePoolAdapter} from "../src/adapters/FakePoolAdapter.sol";
 import {DemoAsset} from "../src/DemoAsset.sol";
 
-/// @notice Deploy the Phulax demo set to 0G testnet (Galileo, chain id 16601).
+/// @notice Deploy the Phulax demo set to 0G testnet (Galileo, chain id 16602).
 ///
 ///         Self-contained: deploys a fresh DemoAsset ERC20 unless one is
 ///         passed in via DEMO_ASSET_ADDRESS. After running, the printed

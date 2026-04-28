@@ -24,7 +24,7 @@ export interface Config {
 export function loadConfig(): Config {
   return {
     rpcUrl: opt("RPC_URL", "http://localhost:8545"),
-    chainId: Number(opt("CHAIN_ID", "16600")), // 0G testnet placeholder
+    chainId: Number(opt("CHAIN_ID", "16602")), // 0G Galileo testnet
     pool: (opt("POOL_ADDRESS", "0x0000000000000000000000000000000000000000") as Address),
     agentPrivateKey: (opt(
       "AGENT_PRIVATE_KEY",
