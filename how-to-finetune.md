@@ -106,6 +106,20 @@ Renders each row through the **frozen** `ml/prompt/template.py` (folds `SYSTEM` 
 
 If you ever change the prompt template, **bump `TEMPLATE_VERSION`** — it invalidates already-published weights and the `submit` step refuses to proceed if the sha drifts.
 
+### Step 2a (alternative) — Train on Colab T4 instead of 0G
+
+If you don't have testnet 0G to spend on the broker — or you want to iterate quickly without the 48h ack window — you can run the LoRA on a free Colab T4 and skip Steps 3–8 entirely. Wallclock is ~10 min vs ~3–6 h on a CPU laptop. The "trained on 0G" narrative bullet goes away, but the publish-and-replay story (weights + harness on 0G Storage, signed receipts on every fire) is unaffected.
+
+```bash
+# 1. Open ml/finetune/colab_train.ipynb in https://colab.research.google.com
+# 2. Runtime → Change runtime type → T4 GPU
+# 3. Run cells in order; cell 2 prompts you to upload ml/data/dataset.jsonl
+# 4. Cell 10 downloads phulax_lora_adapter.zip to your laptop
+unzip ~/Downloads/phulax_lora_adapter.zip -d ml/artifacts/lora/
+```
+
+The notebook mirrors `ml/finetune/lora.py` byte-for-byte on hyperparams (rank 16, α 32, lr 2e-4, 5 epochs, MAX_LEN 768), the assistant-only loss mask, and the RISK/SAFE class weighting. After unzipping, jump straight to **Step 9 — Merge + quantize**; the rest of the pipeline doesn't care where the adapter came from.
+
 ### Step 3 — Discover providers (TS, read-only)
 
 ```bash
@@ -250,7 +264,7 @@ PEFT `merge_and_unload` over base Qwen2.5-0.5B-Instruct + the adapter, then `lla
 ### Step 10 — Eval (Python)
 
 ```bash
-MODEL_DIR=./artifacts/mergeduv uv run python -m eval.harness                   # → eval/REPORT.md
+MODEL_DIR=./artifacts/merged  uv run python -m eval.harness                   # → eval/REPORT.md
 ```
 
 Runs the holdout split through the merged model **using the same `prompt/template.py`** as training (this is why the template is frozen — drift between train and eval makes the numbers meaningless).
