@@ -6,7 +6,7 @@
     "build": "forge build",
     "test": "forge test -vv",
     "fuzz": "forge test --match-test invariant -vv",
-    "deploy:zerog": "forge script script/Deploy.s.sol:Deploy --rpc-url zerog_testnet --broadcast --verify",
+    "deploy:zerog": "forge script script/Deploy.s.sol:Deploy --rpc-url zerog_testnet --broadcast --verify --priority-gas-price 2gwei",
     "abis": "forge build && node ./scripts/extract-abis.mjs",
     "wagmi": "wagmi generate"
   },

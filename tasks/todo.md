@@ -766,3 +766,49 @@ All six tracks (A keeperhub-0g, B contracts, C ml, D inference, E agent, F web) 
 - Hub address goes into web `.env.local` (`NEXT_PUBLIC_HUB_ADDRESS`); PhulaxAccount address goes to the agent's `PHULAX_ACCOUNT_ADDRESS`.
 - KH workflow `{{TODO_FAKE_LENDING_POOL_ADDRESS}}` slot finally gets a value.
 - Optional: mint DemoAsset to the deployer + a demo "attacker" key so the demo flow can run end-to-end without a separate funding step.
+
+### 2026-04-28 — Track B testnet deploy landed + post-broadcast wiring
+
+**Broadcast (chain id 16602, run `contracts/broadcast/Deploy.s.sol/16602/run-latest.json`):**
+- Hub                `0x573b9Ec4BB93bbDA59C0DBA953831d58fC36498C`
+- PhulaxINFT         `0xe5c3e4b205844EFe2694949d5723aa93B7F91616`
+- FakeLendingPool    `0xb1DE7278b81e1Fd40027bDac751117AE960d8747`
+- DemoAsset (pUSD)   `0x21937016d3E3d43a0c2725F47cC56fcb2B51d615`
+- FakePoolAdapter    `0x0c39fF914e41DA07B815937ee70772ba21A5C760`
+- PhulaxAccount      `0xA70060465c1cD280E72366082fE20C7618C18a66`
+- Deployer           `0x734da1B3b4F4E0Bd1D5F68A470798CbBAe74ab00`
+- Agent EOA          `0x47d3CF2a314aeF4Da43dB8eBC7Eb818bF2496260`
+
+**Gas-tip fix (one-line patch to make `--broadcast` actually land):**
+- 0G enforces a 2 gwei minimum priority fee; foundry's auto-estimation produced 1 wei and the relay rejected with `gas tip cap 1, minimum needed 2000000000`.
+- `contracts/package.json` `deploy:zerog` now appends `--priority-gas-price 2gwei`. Re-run is idempotent because the deployer nonce already advanced past the failed simulation.
+
+**Post-broadcast wiring (this session):**
+- `web/.env.local` written from `.env.example` template with all six addresses + 16602 chain id.
+- `agent/.env.example` (new) + `agent/.env` (populated) — covers `RPC_URL`, `CHAIN_ID`, `POOL_ADDRESS`, `PHULAX_ACCOUNT_ADDRESS`, `PHULAX_ADAPTER_ADDRESS`, `HUB_ADDRESS`, `DEMO_ASSET_ADDRESS`, plus the 0G-Storage / KeeperHub / classifier slots that Track A and D will fill. `AGENT_PRIVATE_KEY` left blank — user fills it for the EOA registered at deploy time.
+- `keeperhub/specs/0g-integration/per-tx-detection.workflow.json:17` — `{{TODO_FAKE_LENDING_POOL_ADDRESS}}` replaced with the live FakeLendingPool address.
+- `contracts/.env.example:1` — stale `chain id 16601` comment corrected to 16602.
+
+**Chain-id sweep (16601 → 16602):**
+- `keeperhub/lib/rpc/rpc-config.ts` and `scripts/seed/seed-chains.ts` were already on 16602 (Track A6 work). No change needed.
+- `agent/src/config.ts:27` already defaults to 16602. No change needed.
+- Only `contracts/.env.example` had stale prose; fixed.
+- Lines 463 and 752–754 above are *historical* review prose explaining the 16601→16602 migration; left as-is.
+
+**On-chain sanity (cast call against `https://evmrpc-testnet.0g.ai`):**
+- `Hub.accountOwner(account) == deployer` ✓
+- `Hub.policy(account) == (7000, 2^256-1)` ✓ (threshold 70%, no per-block cap)
+- `PhulaxAccount.owner == deployer`, `PhulaxAccount.agent == 0x47d3...6260` ✓
+- `PhulaxAccount.allowedAdapter(adapter) == true` ✓
+- `DemoAsset.balanceOf(pool) == 100e18` ✓ (seed reserves intact)
+- Agent EOA balance `~2.5 0G` — already funded for hot-key gas.
+- Deployer pUSD balance `0` — expected, all 100e18 of seed minted+supplied to the pool. Self-mint when needed (DemoAsset.mint is permissionless).
+
+**Skipped (intentional):**
+- `cast send` mint to deployer / attacker — DemoAsset is permissionless-mint, so this is a runtime concern for the demo script, not deploy-time. One-liner when ready: `cast send 0x21937016d3E3d43a0c2725F47cC56fcb2B51d615 "mint(address,uint256)" <addr> <amount> --rpc-url $ZEROG_RPC_URL --private-key $PRIVATE_KEY`.
+- Explorer verification API check — Galileo's chainscan returns SPA HTML on `/api?module=...` so the legacy etherscan-compat probe is unreliable; rely on `forge --verify` exit status instead, and confirm visually at `https://chainscan-galileo.0g.ai/address/<addr>`.
+
+**Unblocked next:**
+- Track A end-to-end run — workflow JSON is now address-complete, can be uploaded via `keeperhub/` MCP.
+- Track E `agent/src/exec/withdraw.ts` against the live `PhulaxAccount` — env wired, agent EOA funded, just needs the real private key in `agent/.env`.
+- Track F Phase 2 — `web/.env.local` is ready for live SSE + on-chain reads against deployed Hub.
