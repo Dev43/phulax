@@ -1,6 +1,6 @@
 # Phulax classifier eval report
 
-Generated: 2026-04-28 12:28:45 UTC
+Generated: 2026-04-28 16:16:16 UTC
 
 - mode: `local`
 - model: `./artifacts/lora`
@@ -24,9 +24,9 @@ Generated: 2026-04-28 12:28:45 UTC
 
 ## Latency (ms)
 
-- p50: 2297.3
-- p95: 2535.2
-- max: 2709.7
+- p50: 2346.7
+- p95: 2574.2
+- max: 2804.0
 
 ## Verdict
 
