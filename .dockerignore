@@ -1,0 +1,44 @@
+# Keep the inference build context tight (Dockerfile is invoked from repo root
+# so it can copy ml/prompt/). Anything not needed by inference/Dockerfile or
+# the Fly remote builder belongs here.
+
+.git
+.dmux
+node_modules
+**/node_modules
+**/.next
+**/.turbo
+**/dist
+**/build
+**/coverage
+**/.cache
+
+# Foundry / contracts artifacts (not needed by inference)
+contracts/cache
+contracts/out
+contracts/broadcast
+contracts/lib
+
+# ML training artifacts (huge; inference image only needs ml/prompt/)
+ml/artifacts
+ml/datasets
+ml/.venv
+ml/__pycache__
+ml/**/__pycache__
+
+# Python caches
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.ruff_cache
+
+# Editor/OS
+.vscode
+.idea
+.DS_Store
+
+# Other workspaces not consumed by inference
+keeperhub
+tools
+web
+agent

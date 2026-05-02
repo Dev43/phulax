@@ -397,7 +397,7 @@ Parallelism: Day 2 contracts and Day 3 ML work can start in parallel on Day 1 on
 - **Contracts** deployed on Galileo (chain id 16602, broadcast at `contracts/broadcast/Deploy.s.sol/16602/run-latest.json`). All addresses wired into `web/.env.local`, `agent/.env`, and the KH workflow JSON. See `contracts/README.md` for the table.
 - **Five intentional vulns** in `FakeLendingPool`, each backed by a working drain test (`ExploitReplay`, `ExploitReentrancy`, `ExploitFlashLoan`, `ExploitLiquidation`, `ExploitAdminRug`). 11/11 forge tests green, including 512-run owner-only-recipient invariant fuzz.
 - **Agent** (`agent/`): pure detection pipeline (4 tiers), risk aggregator, single-signer `exec/withdraw.ts`, SSE server, 9/9 vitest fixtures + purity test. `tsc --noEmit` clean.
-- **Inference** (`inference/`): real merged Qwen2.5-0.5B + LoRA serving from `ml/artifacts/merged/`. HMAC-signed receipts. Eval `0.750 P / 0.923 R` in-domain, `0.625 / 0.625` OOD. Stub fallback for dep-free tests. Dockerfile present.
+- **Inference** (`inference/`): real merged Qwen2.5-0.5B + LoRA serving from `ml/artifacts/merged/`. HMAC-signed receipts. Eval `0.750 P / 0.923 R` in-domain, `0.625 / 0.625` OOD. Stub fallback for dep-free tests. Dockerfile present. **Deployed to Fly.io in stub mode at `https://phulax-inference.fly.dev` (2026-05-02)** — see punch list A3 for the merged-weights bake-in still-open.
 - **ML pipeline** (`ml/`): dataset (210 rows, 60/150 RISK/SAFE), frozen prompt template (`TEMPLATE_VERSION 2.0.0`), LoRA fine-tune (Colab T4 path is the one actually used), merge+quantize, embeddings indexer, eval harness, upload script. `ml/artifacts/merged/` populated.
 - **Fine-tune broker driver** (`tools/finetune/`): TypeScript wrapper over `@0glabs/0g-serving-broker`, six idempotent subcommands, 47h safety-cron defends the 48h ack deadline.
 - **KeeperHub bridge** (submodule `keeperhub/`, branch `feature/0g-integration`): chain seeds (16602 + 16661), `0g-storage` plugin (kv-get / kv-put / log-append over Flow contract), `0g-compute` plugin (sealed-inference action), `per-tx-detection.workflow.json` skeleton with FakeLendingPool address filled in.
@@ -412,12 +412,15 @@ Going top-to-bottom unblocks each successive section. Items grouped by what bloc
 
 1. **Wire WSS into KeeperHub.** Set `CHAIN_RPC_CONFIG` JSON in `keeperhub/.env` so `0g-testnet` carries `primaryWssUrl: "wss://evmrpc-testnet.0g.ai/ws/"`. No code change to `lib/rpc/rpc-config.ts` needed. *Owner: Track A.*
 2. **Run the block-time + RPC-latency measurement.** `cd keeperhub && pnpm tsx scripts/0g/measure-block-time.ts`. Capture p50/p95 of `eth_getBlockByNumber` and WSS notification stability over 5 minutes; record the numbers here. *Owner: Track A.*
-3. **Host `inference/server.py` publicly.** `docker build -f inference/Dockerfile -t phulax-inference .` (build context = repo root — Dockerfile copies `ml/prompt/`). Mount `ml/artifacts/merged/` (~2 GB) at `PHULAX_MODEL_DIR=/app/model`. Set `PHULAX_INFERENCE_HMAC_KEY` (random 32 bytes — same value goes into the workflow secret). Deploy to Fly.io or Railway, single CPU container. Smoke-test:
-   ```bash
-   curl -X POST https://<host>/classify -H 'content-type: application/json' \
-     -d '{"features":{"selector":"0xa9059cbb","value":"0"}}'
-   ```
-   Should return `{p_nefarious, tag, model_hash, input_hash, signature}`. Note the public URL — feeds A6. *Owner: Track D.*
+3. **Host `inference/server.py` publicly.** ✅ **Stub mode shipped 2026-05-02** at `https://phulax-inference.fly.dev` (Fly.io, iad, 2× shared-cpu/1 GB, image 274 MB compressed, `auto_stop_machines = "stop"`). HMAC secret already set via `fly secrets`; URL wired into `agent/.env.example`. `/healthz` and `/classify` both return 200 with the right shape, so KH workflow integration in A6 is unblocked. **Still open: bake merged weights into the image** so `phase=transformers` instead of `phase=stub`. Concrete steps for the next agent:
+   - Confirm `ml/artifacts/merged/` exists locally (it does in the main worktree but **not in this `.dmux` worktree** — pull from main or re-run `ml/finetune/merge_and_quantize.py`).
+   - Add a `COPY ml/artifacts/merged /app/model` + `ENV PHULAX_MODEL_DIR=/app/model` stage to `inference/Dockerfile` (gated behind a build arg so the stub-mode image stays buildable for tests).
+   - Remove `ml/artifacts` from `.dockerignore` for that build, OR override with `--build-context` so the merged dir actually ships.
+   - Bump the Fly VM to `memory = "2gb"` (Qwen2.5-0.5B + transformers needs ~1.4 GB resident) before redeploy.
+   - `fly deploy --config inference/fly.toml --dockerfile inference/Dockerfile --remote-only` from the repo root.
+   - Verify post-deploy: `curl https://phulax-inference.fly.dev/healthz` returns `phase: "transformers"` and a 64-char `model_hash` (not `"stub"`); a real `/classify` call returns `tag` in `{SAFE, RISK}` and a non-zero `p_nefarious` on a known-bad fixture.
+   - Confirm the `model_hash` reported by `/healthz` matches the value `python -m upload.og_storage` recorded for the published merged-weights CID — same hash on both sides is what makes publish-and-replay verifiable.
+   - Image will balloon to ~1.7 GB compressed; Fly remote-builder push will take 5-10 min. *Owner: Track D.*
 4. **Fill `AGENT_PRIVATE_KEY` in `agent/.env`.** Currently blank. The on-chain agent role is `0x47d3CF2a314aeF4Da43dB8eBC7Eb818bF2496260`; whoever holds that key pastes it in. Verify: `cd agent && pnpm tsx -e "import {agent} from './src/exec/withdraw'; console.log(agent.address)"` should print `0x47d3…6260`. Blast radius is forced exit only — agent role can call `withdraw(adapter)` and nothing else.
 5. **Upload artifacts to 0G Storage and populate `ml/artifacts.json`.** Without CIDs, the iNFT mint has nothing to anchor and the publish-and-replay verifiability story is empty.
    - `cd ml && uv run python -m upload.og_storage` — uploads merged weights, GGUF, dataset, embeddings index, eval report, harness sources. Writes CIDs to `ml/artifacts.json`.

@@ -19,7 +19,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 COPY inference/requirements.txt ./
-RUN pip install -r requirements.txt
+# Install torch from PyTorch's CPU index first so the rest of requirements.txt
+# sees torch already satisfied — avoids pulling the ~2 GB CUDA wheels from PyPI.
+# CPU is fine for the demo (QPS is one fire per 0G block).
+RUN pip install --index-url https://download.pytorch.org/whl/cpu torch==2.4.1 \
+ && pip install -r requirements.txt
 
 # Frozen prompt template — same file fine-tune + eval + this server import,
 # version pinned by TEMPLATE_VERSION inside the file. Mirrored at /app/ml so
