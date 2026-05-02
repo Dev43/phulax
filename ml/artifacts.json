@@ -1,0 +1,96 @@
+{
+  "model": {
+    "base": "Qwen/Qwen2.5-0.5B-Instruct",
+    "merged": {
+      "chat_template.jinja": {
+        "rootHash": "0x9330d67ee7bd9b47e1c510927147d752b3bcf0059b6f1f515a701189b2171650",
+        "txHash": ""
+      },
+      "config.json": {
+        "rootHash": "0x7200b49f7ea2ac598ee6a0233b820b121052fa9b644ae988f0ad86722e228e14",
+        "txHash": ""
+      },
+      "generation_config.json": {
+        "rootHash": "0x7d63e507fb27217a6fb4a6afb28fe176ec4a1182aeb9d15fe1cc1c9918528ad7",
+        "txHash": ""
+      },
+      "model.safetensors": {
+        "sha256": "0x0f11b81a69774f2cc4c657fb6524d05cf28e6996c52f8f68120f154138ae3676",
+        "size": 988097536,
+        "skipped": "size > OG_MAX_BLOB_BYTES"
+      },
+      "tokenizer.json": {
+        "rootHash": "0x4be41a9173320c68f4c2a8306fdfddb9b8e4448a6250f064608138c1c4284350",
+        "txHash": ""
+      },
+      "tokenizer_config.json": {
+        "rootHash": "0x4c866b772af9ec32b8fb170192b6502504d5a9010135fa5b4e3693235201f92d",
+        "txHash": ""
+      }
+    },
+    "adapter": {
+      "rootHash": "0x6ed56b235cb7af9469fa6d5ceffba70523bcbbffcf1ca51d8bbedc1d066917c7",
+      "txHash": "0x66e338170b4a2eb2894f39c586bf8fadd96b4420ca3475708ca660ef9dc5265b"
+    }
+  },
+  "prompt_template_version": "2.0.0",
+  "dataset": {
+    "rootHash": "0x0baa9fb0eb871a06c2fba0c4d46d4dc8ad8e7a9cea27a097cd97156357a74eb0",
+    "txHash": ""
+  },
+  "eval": {
+    "report": {
+      "rootHash": "0x8692a53eac0f3213cf2c80d9367b060ce57062b600af01c7ec29a5c87adc1e34",
+      "txHash": "0xdbc4a7fbec6d1729c5d1058886c54076960a2b07ae6b6dae26bb394b961d343a"
+    },
+    "harness": {
+      "eval/harness.py": {
+        "rootHash": "0x6d06dd4161fc756e00d232958c6f9a21b93c8797480fba145cff40d9d60cd6ca",
+        "txHash": "0x9c7f54164e0a9a7ec0356d6a010c993dfa161ed99a09f7b8d5ee3894adff792e"
+      },
+      "prompt/template.py": {
+        "rootHash": "0x13384433e56443977e6edf0be3efc81f895dca590a3a59e9d275913919372e95",
+        "txHash": "0x47668a69b3c67cf268fbae27302e1b7380c1e40b95d508f4f62a155c6611d0ca"
+      },
+      "data/build_dataset.py": {
+        "rootHash": "0x04d1c506521de25b804e91cb94be1fa3f3592d4adaed42ac980ea51d0ac92b91",
+        "txHash": "0xc55f5ea7a3954600a424d6326cb35f495511d53628ff26b3091fa32ea81f1243"
+      },
+      "data/exploits.py": {
+        "rootHash": "0xe9b1752e32161ae664efa85231e87d0d6601d463f2d19656dfe7626cf26f46ad",
+        "txHash": "0x9908456bf3490bd0c7b05e341c64c26bd79b54aaeadf0a03545a9d79a4d9541a"
+      },
+      "data/benign.py": {
+        "rootHash": "0x2d6050a904dc1e2a15842f46b432cc51ca866f1ad3e19a4676db8a924a0951bc",
+        "txHash": "0x1d3caa6e58ca4a0577802a4a35cd12939ac912bcd43bae92acd43527fd37dd73"
+      },
+      "pyproject.toml": {
+        "rootHash": "0xccd536a37669670d80be13c68c38ec60422e8026a06cd6ec2cfb97d245d06020",
+        "txHash": "0x68f0babcaf5f2a6443433ae9dc118db77c74388a0d1af1ba40bf07a94e3bca80"
+      },
+      "README.md": {
+        "rootHash": "0x57d38343ab5c1cb9410f5acc116e049ff98586ce5a1453d7ea236a502ff967da",
+        "txHash": "0x8ab66f626488a0396f736d3f5ad4dbfe2ca942436d6867bb522985da6e350255"
+      }
+    }
+  },
+  "publish_log": {
+    "rootHash": "0x7c244f87e40a92807304bc4cbbba751d16c33f85cb6998e9f025a428db299196",
+    "txHash": "0xce46334c9c2d38f6c04f3994b02fef8b6c8da9ba675ccff68d5f2e754ae9605a",
+    "streamId": "0x7070707070707070707070707070707070707070707070707070707070707002",
+    "key": "phulax/publish/0x0f11b81a69774f2cc4c657fb6524d05cf28e6996c52f8f68120f154138ae3676",
+    "entry": {
+      "kind": "model_publish",
+      "model_hash": "0x0f11b81a69774f2cc4c657fb6524d05cf28e6996c52f8f68120f154138ae3676",
+      "template_version": "2.0.0",
+      "dataset_sha256": "0x2609420e3cae8024672190c4a290aa43728be6dc46aea7ef9b12fff9ac6fc9cc",
+      "weights_cid": null,
+      "weights_sha256": "0x0f11b81a69774f2cc4c657fb6524d05cf28e6996c52f8f68120f154138ae3676",
+      "adapter_cid": "0x6ed56b235cb7af9469fa6d5ceffba70523bcbbffcf1ca51d8bbedc1d066917c7",
+      "eval_cid": "0x8692a53eac0f3213cf2c80d9367b060ce57062b600af01c7ec29a5c87adc1e34",
+      "provider": "0xA02b95Aa6886b1116C4f334eDe00381511E31A09",
+      "task_id": "f14b9662-62ce-47c7-a564-35df364980f2",
+      "timestamp": "2026-05-02T19:05:36.076064+00:00"
+    }
+  }
+}
