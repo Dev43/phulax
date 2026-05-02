@@ -43,10 +43,23 @@ interface QueryTx {
   args: readonly unknown[];
 }
 
+// KH `web3/query-events` shape. The pool's `Withdraw(address indexed
+// reserve, address indexed user, address indexed to, uint256 amount)` event
+// gives us everything needed to reconstruct a withdraw tx without falling
+// back to the indexer-lagged `query-transactions` step (0G chainscan trails
+// chain head by ~3 min, missing per-block triggers entirely).
+interface QueryEvent {
+  transactionHash: Hex;
+  blockNumber: number | string;
+  logIndex?: number;
+  args: Record<string, unknown> | unknown[];
+}
+
 interface DetectFeaturesBody {
   account: Address;
   adapter: Address;
-  txs: QueryTx[];
+  txs?: QueryTx[];
+  events?: QueryEvent[];
 }
 
 interface ClassifierInput {
@@ -99,8 +112,18 @@ export async function buildServer() {
   // Tier 1/2/3 over a block's pool txs. Picks the highest-rule-score tx
   // and returns the inference body so the workflow can route it to /classify.
   app.post<{ Body: DetectFeaturesBody }>("/detect-features", async (req) => {
-    const { account, adapter, txs } = req.body;
-    if (!Array.isArray(txs) || txs.length === 0) {
+    const { account, adapter } = req.body;
+
+    // Accept either query-transactions output (txs[]) or query-events
+    // output (events[], from the pool's Withdraw event). Events are the
+    // path that works on 0G — the indexer behind query-transactions lags.
+    const txs: QueryTx[] = Array.isArray(req.body.txs) && req.body.txs.length
+      ? req.body.txs
+      : Array.isArray(req.body.events)
+        ? req.body.events.map(eventToTx)
+        : [];
+
+    if (txs.length === 0) {
       return { hasCandidate: false, candidate: null };
     }
 
@@ -183,6 +206,35 @@ export async function buildServer() {
   });
 
   return app;
+}
+
+// Map a `web3/query-events` Withdraw event into the QueryTx shape so the
+// rest of the pipeline doesn't have to care which KH primitive sourced the
+// data. The pool emits `Withdraw(reserve, user, to, amount)`.
+function eventToTx(e: QueryEvent): QueryTx {
+  const a = e.args ?? {};
+  // KH's decoded args may come as an object keyed by event-arg name OR as
+  // a positional array — accept both.
+  const get = (key: string, idx: number): unknown => {
+    if (Array.isArray(a)) return a[idx];
+    return (a as Record<string, unknown>)[key];
+  };
+  const reserve = get("reserve", 0);
+  const user = get("user", 1);
+  const to = get("to", 2);
+  const amount = get("amount", 3);
+  return {
+    hash: e.transactionHash,
+    blockNumber: e.blockNumber,
+    from: (typeof user === "string" ? user : "0x0000000000000000000000000000000000000000") as Address,
+    value: "0",
+    functionName: "withdraw",
+    args: [
+      reserve,
+      typeof amount === "bigint" ? amount.toString() : String(amount ?? "0"),
+      to,
+    ],
+  };
 }
 
 function toRaw(t: QueryTx): RawTx | null {

@@ -33,10 +33,13 @@ RUN pip install --index-url https://download.pytorch.org/whl/cpu torch==2.4.1 \
  && pip install -r requirements.txt
 
 # Frozen prompt template — same file fine-tune + eval + this server import,
-# version pinned by TEMPLATE_VERSION inside the file. Mirrored at /app/ml so
-# the sys.path manipulation in server.py resolves identically to dev runs.
-COPY ml/prompt/__init__.py /app/ml/prompt/__init__.py
-COPY ml/prompt/template.py /app/ml/prompt/template.py
+# version pinned by TEMPLATE_VERSION inside the file. server.py computes
+# _REPO_ROOT = Path(__file__).resolve().parent.parent → "/" when WORKDIR=/app,
+# so the template MUST live at /ml/prompt/ (not /app/ml/prompt/) for the
+# `from prompt.template import ...` to resolve. Without this, /classify silently
+# returns the stub triple even with weights loaded — discovered 2026-05-02.
+COPY ml/prompt/__init__.py /ml/prompt/__init__.py
+COPY ml/prompt/template.py /ml/prompt/template.py
 
 COPY inference/server.py ./
 

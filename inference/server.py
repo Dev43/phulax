@@ -149,6 +149,15 @@ def _ensure_model() -> tuple[Any, Any]:
         tok = AutoTokenizer.from_pretrained(MODEL_DIR)
         if tok.pad_token is None:
             tok.pad_token = tok.eos_token
+        # transformers 4.43+ stores chat templates in a sidecar chat_template.jinja
+        # next to tokenizer_config.json. AutoTokenizer.from_pretrained does not
+        # always auto-attach it on local-dir loads (observed on 4.46.3 against
+        # ml/artifacts/merged), so set it explicitly when present.
+        if not getattr(tok, "chat_template", None):
+            template_file = Path(MODEL_DIR) / "chat_template.jinja"
+            if template_file.exists():
+                tok.chat_template = template_file.read_text()
+                log.info("attached chat_template from %s", template_file)
         mdl = AutoModelForCausalLM.from_pretrained(MODEL_DIR, torch_dtype="auto")
         mdl.eval()
         _model, _tokenizer = mdl, tok
