@@ -1,9 +1,13 @@
-# Keep the inference build context tight (Dockerfile is invoked from repo root
-# so it can copy ml/prompt/). Anything not needed by inference/Dockerfile or
-# the Fly remote builder belongs here.
+# Universal junk excludes — applied to every service build (web, agent,
+# keeperhub, inference). Service-specific tightening lives in
+# `<dockerfile-path>.dockerignore` next to each Dockerfile.
+#
+# Do NOT exclude /web, /agent, /keeperhub, or /tools here — they're build
+# contexts for the multi-service docker-compose stack.
 
 .git
 .dmux
+.claude
 node_modules
 **/node_modules
 **/.next
@@ -12,24 +16,21 @@ node_modules
 **/build
 **/coverage
 **/.cache
+**/.venv
+**/venv
 
-# Foundry / contracts artifacts (not needed by inference)
+# Foundry / contracts artifacts (regen via `forge build`)
 contracts/cache
 contracts/out
 contracts/broadcast
 contracts/lib
 
-# ML training artifacts (huge; inference image only needs ml/prompt/).
-# Exception: ml/artifacts/merged ships in the `transformers` Dockerfile stage
-# so /healthz reports phase=transformers + a real model_hash. Everything else
-# under ml/artifacts (lora/, og-ft/, v1_lora/, v2_lora/) stays excluded.
+# ML training artifacts (huge; inference image only needs ml/artifacts/merged).
+# The negation lets the merged checkpoint ship into the inference build context.
 ml/artifacts
 !ml/artifacts/merged
 !ml/artifacts/merged/**
 ml/datasets
-ml/.venv
-ml/__pycache__
-ml/**/__pycache__
 
 # Python caches
 **/__pycache__
@@ -41,9 +42,3 @@ ml/**/__pycache__
 .vscode
 .idea
 .DS_Store
-
-# Other workspaces not consumed by inference
-keeperhub
-tools
-web
-agent
