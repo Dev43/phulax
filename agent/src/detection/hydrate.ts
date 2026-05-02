@@ -1,8 +1,19 @@
-import { type Address, type Hex, decodeFunctionData, keccak256, toHex } from "viem";
-import { fakeLendingPoolAbi } from "../abis/FakeLendingPool.js";
+import {
+  type Address,
+  type Hex,
+  decodeFunctionData,
+  getAddress,
+  keccak256,
+  toHex,
+} from "viem";
+import { erc20BalanceOfAbi, fakeLendingPoolAbi } from "../abis/FakeLendingPool.js";
 import { publicClient } from "../chain/clients.js";
 import { config } from "../config.js";
 import { kvLookupNearest } from "../og/kv.js";
+import {
+  SELECTOR_WITHDRAW,
+  SELECTOR_WITHDRAW_RESERVES,
+} from "./invariants.js";
 import type {
   ClassifierReceipt,
   InvariantSnapshot,
@@ -35,13 +46,21 @@ export interface HydrateOptions {
   skipClassifier?: boolean;
 }
 
+// Selectors that take an `amount` arg in args[1]. supply/borrow/withdraw
+// all use this slot; liquidate/withdrawReserves do not.
+const AMOUNT_BEARING_SELECTORS = new Set<string>([
+  "supply",
+  "borrow",
+  "withdraw",
+]);
+
 export async function hydrate(
   raw: RawTx,
-  prevSharePrice: bigint,
   opts: HydrateOptions = {},
 ): Promise<TxContext> {
   const pool = opts.pool ?? config().pool;
   const pc = publicClient();
+  const selector = raw.input.slice(0, 10) as Hex;
 
   // Decode calldata against the pool ABI. If the tx isn't to our pool we
   // still proceed but with null function name.
@@ -59,40 +78,75 @@ export async function hydrate(
   }
 
   const blockTag = { blockNumber: raw.blockNumber } as const;
+  const prevBlockTag = { blockNumber: raw.blockNumber - 1n } as const;
 
-  // Tier 1 reads (parallel)
-  const [sharePrice, utilizationBps, totalSupply, totalReserves, totalBorrows] =
-    await Promise.all([
-      pc.readContract({ address: pool, abi: fakeLendingPoolAbi, functionName: "sharePrice", ...blockTag }),
-      pc.readContract({ address: pool, abi: fakeLendingPoolAbi, functionName: "utilizationBps", ...blockTag }),
-      pc.readContract({ address: pool, abi: fakeLendingPoolAbi, functionName: "totalSupply", ...blockTag }),
-      pc.readContract({ address: pool, abi: fakeLendingPoolAbi, functionName: "totalReserves", ...blockTag }),
-      pc.readContract({ address: pool, abi: fakeLendingPoolAbi, functionName: "totalBorrows", ...blockTag }),
-    ]);
+  // Asset arg if the selector takes one (supply/borrow/withdraw/liquidate
+  // all have the asset somewhere in args[0..1]; only the four selectors
+  // we care about consistently put it at args[0]).
+  const asset = extractAsset(functionName, args);
+  const txAmount = extractAmount(functionName, args);
+
+  // Tier 1: real-pool reads — admin EOA + ERC-20 reserve at blockN/N-1.
+  const [adminAddr, poolReserve, poolReservePrev] = await Promise.all([
+    pc.readContract({
+      address: pool,
+      abi: fakeLendingPoolAbi,
+      functionName: "admin",
+      ...blockTag,
+    }).catch(() => null),
+    asset
+      ? pc.readContract({
+          address: asset,
+          abi: erc20BalanceOfAbi,
+          functionName: "balanceOf",
+          args: [pool],
+          ...blockTag,
+        }).catch(() => 0n)
+      : Promise.resolve(0n),
+    asset
+      ? pc.readContract({
+          address: asset,
+          abi: erc20BalanceOfAbi,
+          functionName: "balanceOf",
+          args: [pool],
+          ...prevBlockTag,
+        }).catch(() => 0n)
+      : Promise.resolve(0n),
+  ]);
+
+  const fromIsAdmin =
+    adminAddr !== null &&
+    getAddress(raw.from) === getAddress(adminAddr as Address);
+
   const invariants: InvariantSnapshot = {
-    sharePrice: sharePrice as bigint,
-    prevSharePrice,
-    utilizationBps: utilizationBps as bigint,
-    totalSupply: totalSupply as bigint,
-    totalReserves: totalReserves as bigint,
-    totalBorrows: totalBorrows as bigint,
+    selector,
+    fromIsAdmin,
+    asset,
+    poolReserve: poolReserve as bigint,
+    poolReservePrev: poolReservePrev as bigint,
+    txAmount,
   };
 
   // Tier 2: oracle. The pool exposes an asset price for the asset arg
   // (when present); chainlink + TWAP feeds are placeholders that Track B
   // wires through real oracle adapters. For the demo replay, we read the
-  // pool's getter at the block in question and set the references equal
-  // to a baseline read at block-1. Replays override this via ctx directly.
-  const asset = (args[0] as Address | undefined) ?? pool;
+  // pool's getter at the block in question and at block-1 as a stand-in
+  // for the reference feeds. Replays override this via ctx directly.
+  const oracleAsset = asset ?? pool;
   const [poolPrice, poolPricePrev] = await Promise.all([
-    pc.readContract({ address: pool, abi: fakeLendingPoolAbi, functionName: "getAssetPrice", args: [asset], ...blockTag })
-      .catch(() => 0n),
     pc.readContract({
       address: pool,
       abi: fakeLendingPoolAbi,
       functionName: "getAssetPrice",
-      args: [asset],
-      blockNumber: raw.blockNumber - 1n,
+      args: [oracleAsset],
+      ...blockTag,
+    }).catch(() => 0n),
+    pc.readContract({
+      address: pool,
+      abi: fakeLendingPoolAbi,
+      functionName: "getAssetPrice",
+      args: [oracleAsset],
+      ...prevBlockTag,
     }).catch(() => 0n),
   ]);
   const oracle: OracleSnapshot = {
@@ -106,10 +160,22 @@ export async function hydrate(
   const featureKey = featureFingerprint(raw, args);
   const vectorMatch: VectorMatch | null = await kvLookupNearest(featureKey).catch(() => null);
 
-  // Tier 4: classifier — skipped when caller hints early-exit (rare path,
-  // but keeps invariant breaks fast and offline).
+  // Tier 4: classifier — skipped when caller hints early-exit, or when
+  // tier-1 already has an admin-sweep / reentrancy short-circuit signal
+  // (hydrate doesn't actually run detect; the caller does that. The
+  // skipClassifier hint mirrors the §6 short-circuit semantics).
+  const willShortCircuitTier1 =
+    (selector === SELECTOR_WITHDRAW_RESERVES && fromIsAdmin) ||
+    (selector === SELECTOR_WITHDRAW &&
+      txAmount !== null &&
+      txAmount > 0n &&
+      (poolReservePrev as bigint) > 0n &&
+      (poolReserve as bigint) <= (poolReservePrev as bigint) &&
+      (poolReservePrev as bigint) - (poolReserve as bigint) >
+        txAmount + (txAmount * 500n) / 10_000n);
+
   let classifier: ClassifierReceipt | null = null;
-  if (!opts.skipClassifier) {
+  if (!opts.skipClassifier && !willShortCircuitTier1) {
     classifier = await callClassifier({ raw, args, functionName }).catch(() => null);
   }
 
@@ -119,7 +185,7 @@ export async function hydrate(
     from: raw.from,
     to: raw.to,
     value: raw.value,
-    selector: raw.input.slice(0, 10) as Hex,
+    selector,
     functionName,
     args,
     calldata: raw.input,
@@ -128,6 +194,28 @@ export async function hydrate(
     vectorMatch,
     classifier,
   };
+}
+
+function extractAsset(
+  functionName: string | null,
+  args: readonly unknown[],
+): Address | null {
+  if (!functionName) return null;
+  // supply/borrow/withdraw/setAssetPrice/withdrawReserves all put asset at args[0].
+  // liquidate(user, asset) puts it at args[1].
+  if (functionName === "liquidate") {
+    return (args[1] as Address | undefined) ?? null;
+  }
+  return (args[0] as Address | undefined) ?? null;
+}
+
+function extractAmount(
+  functionName: string | null,
+  args: readonly unknown[],
+): bigint | null {
+  if (!functionName || !AMOUNT_BEARING_SELECTORS.has(functionName)) return null;
+  const a = args[1];
+  return typeof a === "bigint" ? a : null;
 }
 
 /**

@@ -29,13 +29,35 @@ export interface TxContext {
   classifier: ClassifierReceipt | null;
 }
 
+/**
+ * Tier-1 (per-tx, real-pool-readable) invariant snapshot.
+ *
+ * The deployed FakeLendingPool exposes per-asset/per-user mappings only —
+ * no pool-wide aggregates — so the original sharePrice/utilization/
+ * accounting invariants from §6 cannot be checked here without off-chain
+ * user enumeration. We replace them with two invariants that *do* map
+ * to the deployed surface and the demo's vulns (todo §14 Review):
+ *
+ *   - Admin sweep (vuln #4): selector == `withdrawReserves` from admin EOA.
+ *   - Reentrancy (vuln #2): for a `withdraw(asset, amount, to)`, the pool's
+ *     ERC-20 reserve dropped by more than `amount` (with slack for other
+ *     txs in the same block).
+ *
+ * Both are checkable per-tx with reads at blockN and blockN-1.
+ */
 export interface InvariantSnapshot {
-  sharePrice: bigint;
-  prevSharePrice: bigint;
-  utilizationBps: bigint;
-  totalSupply: bigint;
-  totalReserves: bigint;
-  totalBorrows: bigint;
+  /** 4-byte selector of the tx — the admin-sweep rule keys off this. */
+  selector: Hex;
+  /** True when raw.from === pool.admin(). Required to confirm admin-sweep. */
+  fromIsAdmin: boolean;
+  /** Asset arg if present (args[0] for supply/borrow/withdraw/liquidate). */
+  asset: Address | null;
+  /** IERC20(asset).balanceOf(pool) at blockN. 0n when asset is null. */
+  poolReserve: bigint;
+  /** IERC20(asset).balanceOf(pool) at blockN-1. 0n when asset is null. */
+  poolReservePrev: bigint;
+  /** Decoded `amount` arg if the selector takes one. Null otherwise. */
+  txAmount: bigint | null;
 }
 
 export interface OracleSnapshot {
@@ -63,9 +85,8 @@ export interface ClassifierReceipt {
 }
 
 export type SignalKind =
-  | "invariant.sharePrice"
-  | "invariant.utilization"
-  | "invariant.accounting"
+  | "invariant.adminSweep"
+  | "invariant.reentrancy"
   | "oracle.deviation"
   | "vector.similarity"
   | "classifier.nefarious";

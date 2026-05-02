@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "exportedAt": "2026-05-02T00:00:00.000Z",
+  "workflow": {
+    "name": "Phulax Guardian — Withdraw on Threat",
+    "description": "Webhook fired by the off-chain detector. Calls PhulaxAccount.withdraw(adapter) on Galileo; the contract hard-locks recipient = owner so the workflow's signing wallet (also the on-chain `agent` role) cannot redirect funds. Logs a signed receipt to 0G Storage."
+  },
+  "nodes": [
+    {
+      "id": "trigger-1",
+      "type": "trigger",
+      "position": { "x": 0, "y": 0 },
+      "data": {
+        "label": "Detector Webhook",
+        "type": "trigger",
+        "config": {
+          "triggerType": "Webhook",
+          "webhookSchema": "[{\"name\":\"account\",\"type\":\"string\",\"required\":true},{\"name\":\"adapter\",\"type\":\"string\",\"required\":true},{\"name\":\"txHash\",\"type\":\"string\",\"required\":false},{\"name\":\"score\",\"type\":\"number\",\"required\":false},{\"name\":\"reason\",\"type\":\"string\",\"required\":false}]"
+        }
+      }
+    },
+    {
+      "id": "action-withdraw",
+      "type": "action",
+      "position": { "x": 280, "y": 0 },
+      "data": {
+        "label": "PhulaxAccount.withdraw",
+        "type": "action",
+        "config": {
+          "actionType": "web3/write-contract",
+          "network": "16602",
+          "contractAddress": "{{@trigger-1:Detector Webhook.account}}",
+          "abi": "[{\"type\":\"function\",\"name\":\"withdraw\",\"stateMutability\":\"nonpayable\",\"inputs\":[{\"name\":\"adapter\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]}]",
+          "abiFunction": "withdraw",
+          "functionArgs": "[\"{{@trigger-1:Detector Webhook.adapter}}\"]",
+          "priorityFeeGwei": "2"
+        }
+      }
+    },
+    {
+      "id": "action-receipt",
+      "type": "action",
+      "position": { "x": 560, "y": 0 },
+      "data": {
+        "label": "0G Storage receipt",
+        "type": "action",
+        "config": {
+          "actionType": "0g-storage/log-append",
+          "streamId": "REPLACE_WITH_RECEIPT_STREAM_ID",
+          "payload": "{\"event\":\"withdraw\",\"account\":\"{{@trigger-1:Detector Webhook.account}}\",\"adapter\":\"{{@trigger-1:Detector Webhook.adapter}}\",\"sourceTxHash\":\"{{@trigger-1:Detector Webhook.txHash}}\",\"score\":\"{{@trigger-1:Detector Webhook.score}}\",\"reason\":\"{{@trigger-1:Detector Webhook.reason}}\",\"withdrawTxHash\":\"{{@action-withdraw:PhulaxAccount.withdraw.transactionHash}}\",\"chainId\":16602}",
+          "tag": "phulax.withdraw"
+        }
+      }
+    }
+  ],
+  "edges": [
+    { "id": "edge-1", "source": "trigger-1", "target": "action-withdraw", "type": "animated" },
+    { "id": "edge-2", "source": "action-withdraw", "target": "action-receipt", "type": "animated" }
+  ],
+  "integrationBindings": []
+}
