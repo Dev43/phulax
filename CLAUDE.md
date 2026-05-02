@@ -6,22 +6,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Phulax** is a hackathon project: an autonomous on-chain "guardian agent" that watches a yield/lending pool, detects nefarious transactions in real time, and pulls user funds out before an attacker drains the pool. Detection runs on 0G (vector-similarity over a corpus of historical exploits + a fine-tuned Qwen2.5-0.5B classifier), execution runs through KeeperHub workflows, and the user owns their guardian as an ERC-7857 iNFT.
 
-Read these files before doing anything substantive — they are the source of truth, and overlap is intentional:
+Read these files before doing anything substantive — they are the source of truth:
 
 - `idea.md` — original brainstorm.
 - `STRATEGY.md` — *what* and *why*. Pitch shape, architecture diagram, scope cuts, demo script.
-- `tasks/todo.md` — *how*, *with what*, *in what order*. Concrete build plan with locked-in decisions (§13), still-open questions (§15), and per-track Review entries that capture what each track actually shipped vs. spec.
-- `checklist.md` — cross-track Done/To-do board synthesized from `tasks/todo.md` Reviews.
-- `todo-before-demo.md` — current demo-readiness path: critical blockers, sequenced follow-ons, day-of operational checklist.
+- `tasks/todo.md` — *how*, *with what*, *in what order*. **Single source of truth** for the build plan: architectural sections (§1–§13), current punch list with shipped/open status (§14), sharp edges (§15), and the demo-day operational checklist (§16). Per-package details live in each package's `README.md`.
 - `tasks/agents/track-{a..f}-*.md` — per-track dispatch docs used to brief subagents.
 
-If `STRATEGY.md` and `tasks/todo.md` disagree, `tasks/todo.md` wins (more recently revised, contains the resolved decisions). If `tasks/todo.md` and `todo-before-demo.md` disagree on what's done, the latest dated Review entry in `tasks/todo.md` wins.
+If `STRATEGY.md` and `tasks/todo.md` disagree, `tasks/todo.md` wins (more recently revised, contains the resolved decisions).
 
 ## Repo layout
 
 Monorepo with `pnpm-workspace.yaml` listing `contracts`, `agent`, `web`, `keeperhub`. `ml/` and `inference/` are Python (managed separately with `uv` and pip respectively). Each top-level directory is one of the six tracks in `tasks/todo.md` §1:
 
-- `contracts/` — Foundry project (`PhulaxAccount`, `Hub`, `PhulaxINFT` ERC-7857, `FakeLendingPool` with **five** intentional vulns: open-oracle borrow drain, reentrancy via hook-token, flash-loan amplified drain, liquidation-via-oracle-crash, admin reserve sweep). Each vuln is backed by a working drain test; see the demo-coverage matrix in `checklist.md`. Generated typed ABIs land in `contracts/generated/wagmi.ts` and JSON fallbacks in `contracts/abis/`.
+- `contracts/` — Foundry project (`PhulaxAccount`, `Hub`, `PhulaxINFT` ERC-7857, `FakeLendingPool` with **five** intentional vulns: open-oracle borrow drain, reentrancy via hook-token, flash-loan amplified drain, liquidation-via-oracle-crash, admin reserve sweep). Each vuln is backed by a working drain test; see the demo-coverage matrix in `contracts/README.md`. Generated typed ABIs land in `contracts/generated/wagmi.ts` and JSON fallbacks in `contracts/abis/`.
 - `agent/` — TypeScript guardian (Node 20, viem, fastify). Detection pipeline + risk aggregator + KeeperHub workflow client + withdraw executor + SSE server. **At runtime, the only module that signs is `agent/src/exec/withdraw.ts`** — calldata is constructed in-module from the typed ABI fragment.
 - `inference/` — Self-hosted FastAPI classifier endpoint. Real merged Qwen2.5-0.5B + LoRA against `ml/artifacts/merged/` when `PHULAX_MODEL_DIR` is set; deterministic stub fallback when it isn't (so dep-free tests stay fast). HMAC-signed `(input_hash, output, model_hash)` receipts on every fire.
 - `ml/` — Offline-only Python pipeline (uv): dataset builder, frozen prompt template (`ml/prompt/template.py`, versioned), LoRA fine-tune (local PEFT path), merge+quantize, embeddings indexer, eval harness, 0G upload. There's also a Colab notebook (`ml/finetune/colab_train.ipynb`) that mirrors the local fine-tune on a free T4 in ~12-20 min — the path actually used to produce `ml/artifacts/merged/`. Outputs go to `ml/artifacts.json` which Track D + iNFT metadata consume.
@@ -72,6 +70,7 @@ Contracts deployed on 0G Galileo (chain id **16602**, broadcast at `contracts/br
 
 - **Galileo chain id is 16602, not 16601.** 0G migrated the testnet chain id since some seeds were committed. Some review prose in `tasks/todo.md` still references 16601 — historical only; current code is on 16602.
 - **2 gwei minimum priority fee** on Galileo. `forge --broadcast` fails without `--priority-gas-price 2gwei`. `cast send` calls need it too.
+- **0G WSS lives at `wss://evmrpc-testnet.0g.ai/ws/`** — trailing slash is mandatory. `/ws` (no slash) returns an HTTP 301 redirect that WebSocket clients silently fail on (timeout, no error), so it looks like the endpoint doesn't exist. Confirmed against chain id `0x40da`/16602 with `eth_subscribe("newHeads")` streaming heads at ~250 ms cadence (resolved 2026-05-02; see `tasks/todo.md` Review).
 - **Adapter owns the pool position, not PhulaxAccount.** After the 2026-04-26 ownership-model fix, `pool.balanceOf(asset, user)` returns 0 for a Phulax-protected user. `agent/src/detection/hydrate.ts` and any code wanting "this user's pool position" must read `adapter.balanceOf(account)`.
 - **0G Storage writes signed by org KeeperHub wallet via the Flow contract** `0x22E03a6A89B950F1c82ec5e74F8eCa321a105296` (Galileo), not bearer auth. Threat-model line for the pitch: "the workflow's signing wallet pays for the write."
 - **`@0glabs/0g-serving-broker` requires an `ethers.Wallet`, not a `JsonRpcSigner`** — `broker.fineTuning` is undefined otherwise (there's an `instanceof Wallet` check inside the broker source).
