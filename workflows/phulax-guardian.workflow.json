@@ -76,7 +76,7 @@
         "type": "action",
         "config": {
           "actionType": "Condition",
-          "condition": "{{@action-detect:Detect (tier 1/2/3).hasCandidate}} == true"
+          "condition": "{{@action-detect:Detect (tier 1/2/3).data.hasCandidate}} == true"
         }
       }
     },
@@ -92,7 +92,7 @@
           "endpoint": "https://phulax-inference.fly.dev/classify",
           "httpMethod": "POST",
           "httpHeaders": "{\"content-type\":\"application/json\"}",
-          "httpBody": "{{@action-detect:Detect (tier 1/2/3).classifierInput}}"
+          "httpBody": "{{@action-detect:Detect (tier 1/2/3).data.candidate.classifierInput}}"
         }
       }
     },
@@ -108,7 +108,7 @@
           "endpoint": "http://localhost:8787/decide",
           "httpMethod": "POST",
           "httpHeaders": "{\"content-type\":\"application/json\"}",
-          "httpBody": "{\"account\":\"0xA70060465c1cD280E72366082fE20C7618C18a66\",\"adapter\":\"0x0c39fF914e41DA07B815937ee70772ba21A5C760\",\"txHash\":\"{{@action-detect:Detect (tier 1/2/3).candidate.txHash}}\",\"ruleScore\":{{@action-detect:Detect (tier 1/2/3).candidate.ruleScore}},\"classifier\":{{@action-classify:Classify (tier 4 — 0G compute slot)}}}"
+          "httpBody": "{\"account\":\"0xA70060465c1cD280E72366082fE20C7618C18a66\",\"adapter\":\"0x0c39fF914e41DA07B815937ee70772ba21A5C760\",\"txHash\":\"{{@action-detect:Detect (tier 1/2/3).data.candidate.txHash}}\",\"ruleScore\":{{@action-detect:Detect (tier 1/2/3).data.candidate.ruleScore}},\"classifier\":{{@action-classify:Classify (tier 4 — 0G compute slot).data}}}"
         }
       }
     },
@@ -121,7 +121,7 @@
         "type": "action",
         "config": {
           "actionType": "Condition",
-          "condition": "{{@action-decide:Decide (aggregate).fire}} == true"
+          "condition": "{{@action-decide:Decide (aggregate).data.fire}} == true"
         }
       }
     },
@@ -153,7 +153,7 @@
         "config": {
           "actionType": "0g-storage/log-append",
           "streamId": "REPLACE_WITH_RECEIPT_STREAM_ID",
-          "payload": "{\"event\":\"withdraw\",\"blockNumber\":\"{{@trigger-1:Block.blockNumber}}\",\"sourceTxHash\":\"{{@action-detect:Detect (tier 1/2/3).candidate.txHash}}\",\"score\":{{@action-decide:Decide (aggregate).score.value}},\"reason\":\"{{@action-decide:Decide (aggregate).reason}}\",\"withdrawTxHash\":\"{{@action-withdraw:PhulaxAccount.withdraw.transactionHash}}\",\"chainId\":16602}",
+          "payload": "{\"event\":\"withdraw\",\"blockNumber\":\"{{@trigger-1:Block.blockNumber}}\",\"sourceTxHash\":\"{{@action-detect:Detect (tier 1/2/3).data.candidate.txHash}}\",\"score\":{{@action-decide:Decide (aggregate).data.score.value}},\"reason\":\"{{@action-decide:Decide (aggregate).data.reason}}\",\"withdrawTxHash\":\"{{@action-withdraw:PhulaxAccount.withdraw.transactionHash}}\",\"chainId\":16602}",
           "tag": "phulax.withdraw"
         }
       }

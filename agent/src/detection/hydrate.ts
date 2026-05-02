@@ -236,11 +236,17 @@ async function callClassifier(input: {
   functionName: string | null;
 }): Promise<ClassifierReceipt | null> {
   const url = config().classifierUrl;
+  // inference/server.py expects `{ features: <blob> }` — Pydantic model
+  // ClassifyRequest.features: Any. The wrapper is mandatory; the inner
+  // blob shape is what gets canonical-json'd into input_hash on both
+  // sides per the CLAUDE.md canonicaliser invariant.
   const body = {
-    selector: input.raw.input.slice(0, 10),
-    function_name: input.functionName,
-    args: input.args.map((a) => (typeof a === "bigint" ? a.toString() : a)),
-    value: input.raw.value.toString(),
+    features: {
+      selector: input.raw.input.slice(0, 10),
+      function_name: input.functionName,
+      args: input.args.map((a) => (typeof a === "bigint" ? a.toString() : a)),
+      value: input.raw.value.toString(),
+    },
   };
   const res = await fetch(url, {
     method: "POST",

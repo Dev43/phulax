@@ -62,11 +62,18 @@ interface DetectFeaturesBody {
   events?: QueryEvent[];
 }
 
-interface ClassifierInput {
+interface ClassifierFeatures {
   selector: Hex;
   function_name: string | null;
   args: unknown[];
   value: string;
+}
+
+// inference/server.py expects `{ features: ... }` (Pydantic model
+// ClassifyRequest.features: Any). The wrapper is what differs from the
+// raw blob — keep them as separate types so the wire shape is explicit.
+interface ClassifierInput {
+  features: ClassifierFeatures;
 }
 
 interface Candidate {
@@ -162,10 +169,14 @@ export async function buildServer() {
       adapter,
       ruleScore: best.score,
       classifierInput: {
-        selector: ctx.selector,
-        function_name: ctx.functionName,
-        args: ctx.args.map((a) => (typeof a === "bigint" ? a.toString() : a)),
-        value: ctx.value.toString(),
+        features: {
+          selector: ctx.selector,
+          function_name: ctx.functionName,
+          args: ctx.args.map((a) =>
+            typeof a === "bigint" ? a.toString() : a,
+          ),
+          value: ctx.value.toString(),
+        },
       },
     };
     return { hasCandidate: true, candidate };
