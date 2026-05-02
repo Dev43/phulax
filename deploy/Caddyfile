@@ -1,0 +1,45 @@
+# Phulax single-box reverse proxy.
+#
+# Site shape:
+#   /             → KeeperHub (default catch-all)
+#   /web,  /web/* → phulax web (Next.js, basePath=/web)
+#   /agent, /agent/* → phulax agent (prefix stripped before forwarding)
+#   inference     → not exposed publicly; Docker network only.
+#
+# basic_auth covers everything (username: ethglobal). Credential is a bcrypt
+# hash of the chosen demo password — generated with `htpasswd -nbBC 14`.
+
+{$PHULAX_HOST:localhost} {
+    encode gzip zstd
+
+    # Site-wide gate. Same creds for every path. To rotate, regenerate with:
+    #   htpasswd -nbBC 14 ethglobal '<new-password>'
+    # and update both this hash and the Caddyfile in source control.
+    basic_auth {
+        ethglobal $2y$14$B6KiACniayqYbf4SxEF1TuZJqljlUX3mvxZj/lxXZ9Tcv1MiN9Qpm
+    }
+
+    # Phulax web dashboard. basePath=/web is baked into the build, so Caddy
+    # forwards the full path (including the prefix) — Next.js generates asset
+    # URLs at /web/_next/... and they resolve cleanly.
+    @web path /web /web/*
+    handle @web {
+        reverse_proxy web:3000
+    }
+
+    # Phulax agent HTTP service. handle_path strips the /agent prefix before
+    # forwarding — the agent's Fastify routes (/health, /detect-features,
+    # /decide, /feedback, /incidents/:account, /) live at root.
+    handle_path /agent/* {
+        reverse_proxy agent:8787
+    }
+    handle /agent {
+        # Bare /agent → redirect to /agent/ so the trailing-slash strip works.
+        redir /agent/ permanent
+    }
+
+    # Default catch-all → KeeperHub. KH owns the apex.
+    handle {
+        reverse_proxy keeperhub:3000
+    }
+}

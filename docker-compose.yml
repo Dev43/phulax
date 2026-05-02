@@ -1,0 +1,176 @@
+# Phulax — single-box hackathon deploy.
+#
+# Brings up the full stack on one host with Caddy as the public front door:
+#   /                → keeperhub  (Next.js 16 app, root mount → no basePath patch)
+#   /web,  /web/*    → phulax web (Next.js 14, basePath=/web baked at build)
+#   /agent, /agent/* → phulax agent (Fastify; Caddy strips the prefix)
+#   inference        → internal only; agent + KH talk to it on the Docker network
+#
+# Caddy holds basic_auth at the site level (creds in deploy/Caddyfile).
+#
+# Usage:
+#   cp deploy/.env.example .env       # fill in secrets
+#   docker compose up -d --build       # first run will be slow (KH + inference both ~1 GB)
+#   docker compose logs -f caddy       # watch the front door
+#
+# The bigger image (inference, ~1.5 GB) only rebuilds when ml/artifacts/merged
+# or inference/ changes. The transformers Dockerfile target is the same one
+# used in the Fly deploy — see inference/Dockerfile.
+
+name: phulax
+
+x-env-db: &env_db
+  POSTGRES_USER: ${POSTGRES_USER:-postgres}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+  POSTGRES_DB: ${POSTGRES_DB:-keeperhub}
+
+x-env-db-connection: &env_db_connection
+  DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-keeperhub}
+
+x-env-aws: &env_aws
+  AWS_REGION: us-east-1
+  AWS_ACCESS_KEY_ID: test
+  AWS_SECRET_ACCESS_KEY: test
+  AWS_ENDPOINT_URL: http://localstack:4566
+
+x-env-sqs: &env_sqs
+  SQS_QUEUE_URL: http://localstack:4566/000000000000/keeperhub-workflow-queue
+
+x-env-kh-service-keys: &env_kh_service_keys
+  SCHEDULER_SERVICE_API_KEY: ${SCHEDULER_SERVICE_API_KEY:-local-scheduler-key}
+  MCP_SERVICE_API_KEY: ${MCP_SERVICE_API_KEY:-local-mcp-key}
+  EVENTS_SERVICE_API_KEY: ${EVENTS_SERVICE_API_KEY:-local-events-key}
+
+services:
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      PHULAX_HOST: ${PHULAX_HOST:-localhost}
+    depends_on:
+      - keeperhub
+      - web
+      - agent
+    networks: [phulax]
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      <<: *env_db
+    volumes:
+      - keeperhub_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [phulax]
+
+  localstack:
+    image: localstack/localstack:3.7
+    restart: unless-stopped
+    environment:
+      - SERVICES=sqs
+      - DEBUG=0
+      - SQS_ENDPOINT_STRATEGY=path
+      - LOCALSTACK_HOST=localstack:4566
+    volumes:
+      - ./keeperhub/deploy/local/hybrid/init-localstack.sh:/etc/localstack/init/ready.d/init-aws.sh:ro
+      - keeperhub_localstack_data:/var/lib/localstack
+    healthcheck:
+      test: ["CMD-SHELL", "awslocal sqs list-queues || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks: [phulax]
+
+  keeperhub:
+    build:
+      context: ./keeperhub
+      dockerfile: Dockerfile
+      target: runner
+    image: phulax/keeperhub:latest
+    restart: unless-stopped
+    environment:
+      <<: [*env_db_connection, *env_aws, *env_sqs, *env_kh_service_keys]
+      NODE_ENV: production
+      KEEPERHUB_API_KEY: ${KEEPERHUB_API_KEY:-}
+      # Internal hostname for inference — KH workflow HTTP steps resolve this
+      # via Docker DNS instead of going out through Caddy.
+      PHULAX_INFERENCE_URL: http://inference:8000
+      PHULAX_AGENT_URL: http://agent:8787
+    depends_on:
+      db:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+    networks: [phulax]
+
+  web:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.web
+      args:
+        NEXT_PUBLIC_BASE_PATH: /web
+    image: phulax/web:latest
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_BASE_PATH: /web
+      NEXT_PUBLIC_AGENT_URL: /agent
+      # NEXT_PUBLIC_* anything the dashboard needs — keep in .env
+    networks: [phulax]
+
+  agent:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.agent
+    image: phulax/agent:latest
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "8787"
+      RPC_URL: ${RPC_URL:-https://evmrpc-testnet.0g.ai}
+      CHAIN_ID: ${CHAIN_ID:-16602}
+      POOL_ADDRESS: ${POOL_ADDRESS:-0xb1DE7278b81e1Fd40027bDac751117AE960d8747}
+      RISK_THRESHOLD: ${RISK_THRESHOLD:-0.7}
+      CLASSIFIER_URL: http://inference:8000/classify
+      OG_STORAGE_URL: ${OG_STORAGE_URL:-http://localhost:5678}
+      OG_STORAGE_AUTH: ${OG_STORAGE_AUTH:-}
+    depends_on:
+      - inference
+    networks: [phulax]
+
+  inference:
+    build:
+      context: .
+      dockerfile: inference/Dockerfile
+      target: transformers
+    image: phulax/inference:latest
+    restart: unless-stopped
+    environment:
+      PHULAX_INFERENCE_PHASE: auto
+      PHULAX_INFERENCE_HMAC_KEY: ${PHULAX_INFERENCE_HMAC_KEY:?set in .env}
+      PHULAX_LOG_LEVEL: INFO
+      # PHULAX_MODEL_DIR is set inside the transformers stage of inference/Dockerfile
+    networks: [phulax]
+
+networks:
+  phulax:
+    driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:
+  keeperhub_db_data:
+  keeperhub_localstack_data:

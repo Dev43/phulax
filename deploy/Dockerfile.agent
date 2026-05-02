@@ -1,0 +1,29 @@
+# Phulax agent — built from the repo root so pnpm-workspace.yaml + lockfile
+# are in scope. Run as:
+#   docker build -f deploy/Dockerfile.agent -t phulax/agent .
+
+FROM node:20-alpine AS base
+RUN corepack enable && corepack prepare pnpm@9.12.3 --activate
+WORKDIR /repo
+
+FROM base AS deps
+# Workspace manifest + lockfile first for layer caching.
+COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
+COPY agent/package.json agent/package.json
+RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
+    pnpm install --frozen-lockfile --filter @phulax/agent...
+
+FROM deps AS build
+COPY agent/ agent/
+RUN pnpm --filter @phulax/agent build
+
+FROM base AS runner
+ENV NODE_ENV=production
+WORKDIR /app
+# Copy only the agent workspace + its node_modules. The rest of the monorepo
+# stays out of the final image.
+COPY --from=build /repo/agent/package.json ./package.json
+COPY --from=build /repo/agent/dist ./dist
+COPY --from=build /repo/agent/node_modules ./node_modules
+EXPOSE 8787
+CMD ["node", "--enable-source-maps", "dist/index.js"]

@@ -6,6 +6,7 @@ import { fakeLendingPoolAbi } from "./abis/FakeLendingPool.js";
 import { config } from "./config.js";
 import { detect } from "./detection/detect.js";
 import { hydrate, type RawTx } from "./detection/hydrate.js";
+import { buildLogger, renderLogPage } from "./log-buffer.js";
 import type {
   ClassifierReceipt,
   Score,
@@ -17,12 +18,15 @@ import {
   type RiskPolicy,
 } from "./risk/aggregator.js";
 import { appendIncident, listIncidents, appendFeedback } from "./og/log.js";
+import { bus, scoreToSignals, type StreamEvent } from "./bus.js";
 
 /**
  * Stateless detection HTTP service. KeeperHub owns the per-block loop and
  * signs the withdraw; this service only exposes pure detection over HTTP.
  *
  *   GET  /health
+ *   GET  /stream                  SSE feed of detection events for the web
+ *                                 dashboard (score / log / incident).
  *   POST /detect-features         tier 1/2/3 only — returns rule score +
  *                                 the body to forward to inference.
  *   POST /decide                  combine rule score + classifier output;
@@ -30,8 +34,9 @@ import { appendIncident, listIncidents, appendFeedback } from "./og/log.js";
  *   POST /feedback                user-marked false-positive
  *   GET  /incidents/:account      proxy to 0G Storage Log
  *
- * No SSE, no chain subscription, no signing surface. The container holds
- * no private keys.
+ * No chain subscription, no signing surface. The container holds no
+ * private keys. The /stream feed is fan-out only — the durable record is
+ * the 0G Storage Log via appendIncident().
  */
 
 interface QueryTx {
@@ -101,10 +106,46 @@ interface FeedbackBody {
 }
 
 export async function buildServer() {
-  const app = Fastify({ logger: true });
+  const app = Fastify({ loggerInstance: buildLogger() });
   await app.register(cors, { origin: true });
 
   app.get("/health", async () => ({ ok: true }));
+
+  // SSE feed — dashboard subscribes here for live score / log / incident
+  // updates. CORS already enabled above so the browser can connect from
+  // a different origin.
+  app.get("/stream", async (_req, reply) => {
+    reply.raw.setHeader("content-type", "text/event-stream");
+    reply.raw.setHeader("cache-control", "no-cache, no-transform");
+    reply.raw.setHeader("connection", "keep-alive");
+    reply.raw.flushHeaders();
+
+    const send = (e: StreamEvent): void => {
+      reply.raw.write(`data: ${JSON.stringify(e)}\n\n`);
+    };
+    // Greet the new subscriber so the dashboard sees the connection
+    // even before the first block-trigger run lands.
+    send({
+      kind: "log",
+      ts: Date.now(),
+      level: "info",
+      msg: "[stream] dashboard connected",
+    });
+
+    const off = bus.on_(send);
+    const ping = setInterval(() => reply.raw.write(":\n\n"), 15_000);
+    reply.raw.on("close", () => {
+      off();
+      clearInterval(ping);
+    });
+  });
+
+  // GET / — live tail HTML page. Caddy strips /agent so the single-box
+  // deploy serves this at https://<host>/agent in a browser.
+  app.get("/", async (_req, reply) => {
+    reply.header("Content-Type", "text/html; charset=utf-8");
+    return renderLogPage();
+  });
 
   app.get<{ Params: { account: Address } }>(
     "/incidents/:account",
@@ -131,8 +172,21 @@ export async function buildServer() {
         : [];
 
     if (txs.length === 0) {
+      bus.emit_({
+        kind: "log",
+        ts: Date.now(),
+        level: "info",
+        msg: "[detect] no pool withdraw events this block",
+      });
       return { hasCandidate: false, candidate: null };
     }
+
+    bus.emit_({
+      kind: "log",
+      ts: Date.now(),
+      level: "info",
+      msg: `[detect] ${txs.length} candidate tx(s); hydrating tier 1/2/3`,
+    });
 
     const raws = txs
       .map((t) => toRaw(t))
@@ -179,6 +233,23 @@ export async function buildServer() {
         },
       },
     };
+    // Pre-classifier rolling score so the dashboard's gauge moves before
+    // /classify lands (~70s on CPU). The /decide event below replaces it
+    // with the merged score once tier 4 is in.
+    bus.emit_({
+      kind: "score",
+      ts: Date.now(),
+      score: best.score.value,
+      signals: scoreToSignals(best.score),
+    });
+    bus.emit_({
+      kind: "log",
+      ts: Date.now(),
+      level: best.score.shortCircuited ? "warn" : "info",
+      msg: `[detect] tier 1/2/3 → score=${best.score.value.toFixed(3)} ` +
+        `${best.score.shortCircuited ? "(SHORT-CIRCUIT)" : ""} ` +
+        `tx=${ctx.txHash.slice(0, 10)} block=${ctx.blockNumber}`,
+    });
     return { hasCandidate: true, candidate };
   });
 
@@ -203,6 +274,41 @@ export async function buildServer() {
         receipt: classifier,
         outcome: decision.fire ? "fired" : "skipped",
       }).catch((err) => app.log.warn({ err: String(err) }, "log append failed"));
+    }
+
+    bus.emit_({
+      kind: "score",
+      ts: Date.now(),
+      score: merged.value,
+      signals: scoreToSignals(merged),
+    });
+    bus.emit_({
+      kind: "log",
+      ts: Date.now(),
+      level: decision.fire ? "fire" : "info",
+      msg: `[decide] score=${merged.value.toFixed(3)} threshold=${decision.threshold} → ${decision.fire ? "FIRE" : "MONITOR"}` +
+        (reason ? ` reason=${reason}` : ""),
+    });
+    if (decision.fire) {
+      bus.emit_({
+        kind: "incident",
+        ts: Date.now(),
+        txHash,
+        account,
+        score: merged.value,
+        outcome: "fired",
+        reason: reason ?? "no signal",
+      });
+    } else if (merged.value > 0.3) {
+      bus.emit_({
+        kind: "incident",
+        ts: Date.now(),
+        txHash,
+        account,
+        score: merged.value,
+        outcome: "monitored",
+        reason: reason ?? "no signal",
+      });
     }
 
     return {

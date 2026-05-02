@@ -18,18 +18,38 @@ import {
 
 const MAX_LOGS = 250;
 const INITIAL_SIGNALS: Signal[] = [
-  { name: "invariant", weight: 0.0, detail: "share price monotonic ✓" },
-  { name: "oracle", weight: 0.0, detail: "Δ vs Chainlink = 0.0%" },
-  { name: "vector", weight: 0.0, detail: "no recent embed" },
-  { name: "classifier", weight: 0.0, detail: "idle" },
+  { name: "invariant", weight: 0.0, detail: "—" },
+  { name: "oracle", weight: 0.0, detail: "—" },
+  { name: "vector", weight: 0.0, detail: "—" },
+  { name: "classifier", weight: 0.0, detail: "—" },
 ];
+
+const AGENT_BASE_URL =
+  process.env.NEXT_PUBLIC_AGENT_BASE_URL ?? "http://localhost:8787";
+
+// Mirrors agent/src/bus.ts StreamEvent. Kept hand-rolled (no shared
+// package) because the payload is small and the agent's TS lives in a
+// different workspace.
+type AgentEvent =
+  | { kind: "log"; ts: number; level: "info" | "warn" | "fire"; msg: string }
+  | { kind: "score"; ts: number; score: number; signals: Signal[] }
+  | {
+      kind: "incident";
+      ts: number;
+      txHash: string;
+      account: string;
+      score: number;
+      outcome: "fired" | "monitored" | "fp";
+      reason: string;
+    };
 
 export default function Home() {
   const [logs, setLogs] = useState<LogLine[]>([]);
-  const [score, setScore] = useState(0.12);
+  const [score, setScore] = useState(0.0);
   const [signals, setSignals] = useState<Signal[]>(INITIAL_SIGNALS);
   const [fired, setFired] = useState(false);
   const [incidents, setIncidents] = useState<Incident[]>(MOCK_INCIDENTS);
+  const [streamConnected, setStreamConnected] = useState(false);
   const firingRef = useRef(false);
 
   const pushLogs = useCallback((next: LogLine[]) => {
@@ -44,22 +64,66 @@ export default function Home() {
     [pushLogs]
   );
 
-  // Phase 1 fake SSE — replaced in Phase 3 with EventSource against /stream.
+  // Live SSE feed from agent/server.ts:GET /stream. Auto-reconnect is
+  // built into EventSource; no manual retry loop. Falls back to the
+  // mock-driven view if the agent is unreachable.
   useEffect(() => {
-    const id = setInterval(() => {
-      if (firingRef.current) return;
-      const events = fakeStreamTick();
-      const newLogs: LogLine[] = [];
-      for (const e of events) {
-        if (e.kind === "log") newLogs.push({ ts: e.ts, level: e.level, msg: e.msg });
-        else {
-          setScore(e.score);
-          setSignals(e.signals);
-        }
+    const url = `${AGENT_BASE_URL}/stream`;
+    const es = new EventSource(url);
+
+    es.onopen = () => {
+      setStreamConnected(true);
+      pushLogs([
+        {
+          ts: Date.now(),
+          level: "info",
+          msg: `[stream] connected to ${url}`,
+        },
+      ]);
+    };
+
+    es.onerror = () => {
+      // Browser auto-reconnects; just surface the state.
+      setStreamConnected(false);
+    };
+
+    es.onmessage = (msg) => {
+      let evt: AgentEvent;
+      try {
+        evt = JSON.parse(msg.data) as AgentEvent;
+      } catch {
+        return;
       }
-      if (newLogs.length) pushLogs(newLogs);
-    }, 900);
-    return () => clearInterval(id);
+      switch (evt.kind) {
+        case "log":
+          pushLogs([{ ts: evt.ts, level: evt.level, msg: evt.msg }]);
+          break;
+        case "score":
+          if (firingRef.current) return;
+          setScore(evt.score);
+          setSignals(evt.signals);
+          break;
+        case "incident":
+          setIncidents((prev) => [
+            {
+              id: `i_${evt.ts}`,
+              ts: evt.ts,
+              score: evt.score,
+              outcome: evt.outcome,
+              txHash: `${evt.txHash.slice(0, 6)}…${evt.txHash.slice(-4)}`,
+              reason: evt.reason,
+            },
+            ...prev,
+          ]);
+          if (evt.outcome === "fired") {
+            setFired(true);
+            setTimeout(() => setFired(false), 4000);
+          }
+          break;
+      }
+    };
+
+    return () => es.close();
   }, [pushLogs]);
 
   const triggerAttack = useCallback(() => {
@@ -136,8 +200,16 @@ export default function Home() {
         </div>
 
         <footer className="pt-4 text-center text-[11px] text-muted-foreground">
-          phase-1 mock · data is synthetic · wire-up to <code>agent/server.ts</code> on
-          Day 4 (track-E7)
+          stream:{" "}
+          <span
+            className={
+              streamConnected ? "text-emerald-500" : "text-amber-500"
+            }
+          >
+            {streamConnected ? "● live" : "○ disconnected"}
+          </span>{" "}
+          · agent <code>{AGENT_BASE_URL}</code> · simulate button is a local
+          UI mock, not chain activity
         </footer>
       </main>
     </div>
