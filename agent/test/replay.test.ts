@@ -48,7 +48,7 @@ describe("detect() purity", () => {
   });
 
   it("invariant violation short-circuits and forces score >= 0.6", () => {
-    const score = detect(fixtures.cream_sharePriceDrop.ctx);
+    const score = detect(fixtures.adminSweep_rug.ctx);
     expect(score.shortCircuited).toBe(true);
     expect(score.value).toBeGreaterThanOrEqual(0.6);
   });

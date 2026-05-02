@@ -25,7 +25,6 @@ interface DetectBatchBody {
   account: Address;
   adapter: Address;
   policy?: Partial<RiskPolicy>;
-  prevSharePrice: string; // bigint as string
   txs: RawTxWire[];
 }
 
@@ -81,13 +80,12 @@ export async function buildServer() {
 
   // -------- Detect batch (called by KeeperHub workflow step) --------
   app.post<{ Body: DetectBatchBody }>("/detect-batch", async (req) => {
-    const { account, adapter, prevSharePrice, txs } = req.body;
+    const { account, adapter, txs } = req.body;
     const policy: RiskPolicy = { ...defaultPolicy(), ...(req.body.policy ?? {}) };
-    const prevSp = BigInt(prevSharePrice);
 
     const ctxs = await Promise.all(
       txs.map((t) =>
-        hydrate(toRaw(t), prevSp).catch((err) => {
+        hydrate(toRaw(t)).catch((err) => {
           app.log.warn({ err: String(err), tx: t.hash }, "hydrate failed");
           return null;
         }),
