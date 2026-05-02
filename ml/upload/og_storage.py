@@ -44,7 +44,7 @@ from dotenv import load_dotenv
 # before og_client import so OGStorageClient.from_env() sees the values.
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
-from og_client import OGStorageClient, WriteResult
+from og_client import OGStorageClient, SkippedBlob, WriteResult
 from prompt.template import TEMPLATE_VERSION
 from finetune.lora import BASE_MODEL
 
@@ -77,7 +77,13 @@ HARNESS_FILES = [
 DEFAULT_PUBLISH_STREAM_ID = "0x" + ("70" * 31) + "02"
 
 
-def _ptr(result: WriteResult) -> dict[str, str]:
+def _ptr(result: WriteResult | SkippedBlob) -> dict[str, str | int]:
+    """Manifest pointer — either the on-chain `{rootHash, txHash}` or the
+    offline `{sha256, size, skipped}` placeholder when a blob exceeded
+    `OG_MAX_BLOB_BYTES`. Consumers (publish-log, iNFT metadata) should
+    fall back to `sha256` when `rootHash` is absent."""
+    if isinstance(result, SkippedBlob):
+        return {"sha256": result.sha256, "size": result.size, "skipped": result.reason}
     return {"rootHash": result.root_hash, "txHash": result.tx_hash}
 
 
@@ -174,20 +180,40 @@ def main() -> None:
     # Prefer the GGUF rootHash (what `inference/server.py` actually loads on
     # CPU); fall back to model.safetensors from the merged dir, then any
     # weights-shaped file. Tokenizer/config files are not weights — skip them.
+    # When a weights blob exceeded OG_MAX_BLOB_BYTES it is recorded as
+    # {sha256, size, skipped} instead of {rootHash, txHash}; the publish
+    # entry then anchors via sha256 so the receipt remains verifiable
+    # offline even though the bytes are not pinned on 0G.
     weight_candidates = ["model.safetensors", "pytorch_model.bin"]
-    fallback_root = next(
-        (merged[p]["rootHash"] for p in weight_candidates if p in merged),
+    weights_blob = next(
+        (merged[p] for p in weight_candidates if p in merged),
         None,
     )
+    fallback_root = (weights_blob or {}).get("rootHash")
+    fallback_sha = (weights_blob or {}).get("sha256")
     model_root = (
         manifest["model"].get("gguf_q4", {}).get("rootHash") or fallback_root
     )
+    # `model_hash` is the canonical replay anchor (todo §10.1) — sha256 of
+    # the raw weights file the inference server loads. Prefer GGUF if
+    # produced, then the safetensors sha (works even when skipped).
+    if GGUF_Q4.exists():
+        model_hash = _sha256_file(GGUF_Q4)
+    elif fallback_sha:
+        model_hash = fallback_sha
+    elif (MERGED / "model.safetensors").exists():
+        # blob was uploaded (small enough), but we still want the offline
+        # hash on the receipt for tamper-evidence.
+        model_hash = _sha256_file(MERGED / "model.safetensors")
+    else:
+        model_hash = None
     publish_entry = {
         "kind": "model_publish",
-        "model_hash": _sha256_file(GGUF_Q4) if GGUF_Q4.exists() else None,
+        "model_hash": model_hash,
         "template_version": TEMPLATE_VERSION,
         "dataset_sha256": _sha256_file(DATASET),
         "weights_cid": model_root,
+        "weights_sha256": fallback_sha,  # offline anchor when not pinned
         "adapter_cid": manifest["model"].get("adapter", {}).get("rootHash"),
         "eval_cid": (
             manifest.get("eval", {}).get("report", {}).get("rootHash")
@@ -197,7 +223,7 @@ def main() -> None:
         "task_id": run.get("taskId") if run else None,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
-    publish_key = f"phulax/publish/{publish_entry['model_hash'] or model_root}"
+    publish_key = f"phulax/publish/{model_hash or model_root or fallback_sha}"
     print(f"appending model_publish log entry to stream {publish_stream_id}")
     log_result = client.kv_put_batch(
         publish_stream_id,

@@ -19,8 +19,13 @@ contracts/out
 contracts/broadcast
 contracts/lib
 
-# ML training artifacts (huge; inference image only needs ml/prompt/)
+# ML training artifacts (huge; inference image only needs ml/prompt/).
+# Exception: ml/artifacts/merged ships in the `transformers` Dockerfile stage
+# so /healthz reports phase=transformers + a real model_hash. Everything else
+# under ml/artifacts (lora/, og-ft/, v1_lora/, v2_lora/) stays excluded.
 ml/artifacts
+!ml/artifacts/merged
+!ml/artifacts/merged/**
 ml/datasets
 ml/.venv
 ml/__pycache__

@@ -1,40 +1,77 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import type { Address, Hex } from "viem";
+import { encodeFunctionData } from "viem";
+import { fakeLendingPoolAbi } from "./abis/FakeLendingPool.js";
 import { config } from "./config.js";
-import { bus, type DetectionEvent } from "./events.js";
 import { detect } from "./detection/detect.js";
 import { hydrate, type RawTx } from "./detection/hydrate.js";
-import { aggregate, defaultPolicy, type RiskPolicy } from "./risk/aggregator.js";
+import type {
+  ClassifierReceipt,
+  Score,
+  SignalKind,
+} from "./detection/types.js";
+import {
+  aggregate,
+  defaultPolicy,
+  type RiskPolicy,
+} from "./risk/aggregator.js";
 import { appendIncident, listIncidents, appendFeedback } from "./og/log.js";
-import { encodeWithdraw, executeWithdraw } from "./exec/withdraw.js";
 
 /**
- * Long-running guardian server (todo §9).
+ * Stateless detection HTTP service. KeeperHub owns the per-block loop and
+ * signs the withdraw; this service only exposes pure detection over HTTP.
  *
- *   GET  /stream                    SSE feed of detection events
- *   GET  /incidents/:account        proxy to 0G Storage Log
- *   POST /feedback                  user-marked false-positive
- *   POST /detect-batch              KeeperHub workflow callback
+ *   GET  /health
+ *   POST /detect-features         tier 1/2/3 only — returns rule score +
+ *                                 the body to forward to inference.
+ *   POST /decide                  combine rule score + classifier output;
+ *                                 return final fire decision.
+ *   POST /feedback                user-marked false-positive
+ *   GET  /incidents/:account      proxy to 0G Storage Log
  *
- * No database. State lives on-chain + 0G Storage. The in-process Bus is
- * just SSE fan-out for the UI.
+ * No SSE, no chain subscription, no signing surface. The container holds
+ * no private keys.
  */
 
-interface DetectBatchBody {
-  account: Address;
-  adapter: Address;
-  policy?: Partial<RiskPolicy>;
-  txs: RawTxWire[];
+interface QueryTx {
+  hash: Hex;
+  blockNumber: number | string;
+  from: Address;
+  value: number | string;
+  functionName: string | null;
+  args: readonly unknown[];
 }
 
-interface RawTxWire {
-  hash: Hex;
-  blockNumber: string;
-  from: Address;
-  to: Address;
+interface DetectFeaturesBody {
+  account: Address;
+  adapter: Address;
+  txs: QueryTx[];
+}
+
+interface ClassifierInput {
+  selector: Hex;
+  function_name: string | null;
+  args: unknown[];
   value: string;
-  input: Hex;
+}
+
+interface Candidate {
+  txHash: Hex;
+  blockNumber: string;
+  account: Address;
+  adapter: Address;
+  ruleScore: Score;
+  classifierInput: ClassifierInput;
+}
+
+interface DecideBody {
+  account: Address;
+  adapter: Address;
+  txHash: Hex;
+  ruleScore: Score;
+  classifier: ClassifierReceipt | null;
+  policy?: Partial<RiskPolicy>;
 }
 
 interface FeedbackBody {
@@ -49,119 +86,152 @@ export async function buildServer() {
 
   app.get("/health", async () => ({ ok: true }));
 
-  // -------- SSE feed --------
-  app.get("/stream", async (_req, reply) => {
-    reply.raw.setHeader("content-type", "text/event-stream");
-    reply.raw.setHeader("cache-control", "no-cache");
-    reply.raw.setHeader("connection", "keep-alive");
-    reply.raw.flushHeaders();
+  app.get<{ Params: { account: Address } }>(
+    "/incidents/:account",
+    async (req) => listIncidents(req.params.account),
+  );
 
-    const send = (e: DetectionEvent) => {
-      reply.raw.write(`event: detection\ndata: ${JSON.stringify(e)}\n\n`);
-    };
-    const off = bus.onDetection(send);
-    const ping = setInterval(() => reply.raw.write(":\n\n"), 15_000);
-    reply.raw.on("close", () => {
-      off();
-      clearInterval(ping);
-    });
-  });
-
-  // -------- Incidents --------
-  app.get<{ Params: { account: Address } }>("/incidents/:account", async (req) => {
-    return listIncidents(req.params.account);
-  });
-
-  // -------- Feedback --------
   app.post<{ Body: FeedbackBody }>("/feedback", async (req) => {
     await appendFeedback(req.body.account, req.body.txHash, req.body.note ?? "");
     return { ok: true };
   });
 
-  // -------- Detect batch (called by KeeperHub workflow step) --------
-  app.post<{ Body: DetectBatchBody }>("/detect-batch", async (req) => {
+  // Tier 1/2/3 over a block's pool txs. Picks the highest-rule-score tx
+  // and returns the inference body so the workflow can route it to /classify.
+  app.post<{ Body: DetectFeaturesBody }>("/detect-features", async (req) => {
     const { account, adapter, txs } = req.body;
-    const policy: RiskPolicy = { ...defaultPolicy(), ...(req.body.policy ?? {}) };
+    if (!Array.isArray(txs) || txs.length === 0) {
+      return { hasCandidate: false, candidate: null };
+    }
+
+    const raws = txs
+      .map((t) => toRaw(t))
+      .filter((r): r is RawTx => r !== null);
 
     const ctxs = await Promise.all(
-      txs.map((t) =>
-        hydrate(toRaw(t)).catch((err) => {
-          app.log.warn({ err: String(err), tx: t.hash }, "hydrate failed");
+      raws.map((r) =>
+        hydrate(r, { skipClassifier: true }).catch((err) => {
+          app.log.warn({ err: String(err), tx: r.hash }, "hydrate failed");
           return null;
         }),
       ),
     );
 
-    const scores = ctxs
-      .filter((c): c is NonNullable<typeof c> => c !== null)
-      .map((c) => detect(c));
-
-    const decision = aggregate(scores, policy);
-    const winningCtx =
-      decision.maxIndex >= 0 ? ctxs.filter((c) => c)[decision.maxIndex] ?? null : null;
-
-    let withdrawCalldata: Hex | undefined;
-    let dispatch: { runId: string; dispatchedAt: number } | undefined;
-    if (decision.fire) {
-      withdrawCalldata = encodeWithdraw(adapter);
-      try {
-        dispatch = await executeWithdraw(account, adapter, {
-          txHash: winningCtx?.txHash,
-          score: decision.maxScore?.value,
-          reason: decision.maxScore?.signals[0]?.kind,
-        });
-      } catch (err) {
-        app.log.error({ err: String(err) }, "withdraw dispatch failed");
+    let best: { idx: number; score: Score } | null = null;
+    for (let i = 0; i < ctxs.length; i++) {
+      const c = ctxs[i];
+      if (!c) continue;
+      const s = detect(c);
+      if (!best || s.value > best.score.value) {
+        best = { idx: i, score: s };
       }
     }
 
-    const event: DetectionEvent = {
-      ts: Date.now(),
-      account,
-      txHash: winningCtx?.txHash ?? ("0x" as Hex),
-      blockNumber: winningCtx ? winningCtx.blockNumber.toString() : "0",
-      score: decision.maxScore ?? { value: 0, shortCircuited: false, signals: [] },
-      receipt: winningCtx?.classifier ?? null,
-      outcome: decision.fire ? "fired" : "skipped",
-      fired: dispatch,
-    };
-    bus.emitDetection(event);
+    if (!best) {
+      return { hasCandidate: false, candidate: null };
+    }
 
-    // Durable record (todo §6 + §10): every fire writes a receipt to the
-    // 0G Storage Log. We log skips too at debug level — replay tooling
-    // wants both classes to compute precision/recall.
-    if (decision.fire || (decision.maxScore && decision.maxScore.value > 0.3)) {
+    const ctx = ctxs[best.idx]!;
+    const candidate: Candidate = {
+      txHash: ctx.txHash,
+      blockNumber: ctx.blockNumber.toString(),
+      account,
+      adapter,
+      ruleScore: best.score,
+      classifierInput: {
+        selector: ctx.selector,
+        function_name: ctx.functionName,
+        args: ctx.args.map((a) => (typeof a === "bigint" ? a.toString() : a)),
+        value: ctx.value.toString(),
+      },
+    };
+    return { hasCandidate: true, candidate };
+  });
+
+  // Combine rule score + classifier into a final decision.
+  app.post<{ Body: DecideBody }>("/decide", async (req) => {
+    const { account, adapter, txHash, ruleScore, classifier } = req.body;
+    const policy: RiskPolicy = { ...defaultPolicy(), ...(req.body.policy ?? {}) };
+
+    const merged: Score = mergeClassifierIntoScore(ruleScore, classifier);
+    const decision = aggregate([merged], policy);
+    const reason: SignalKind | null =
+      merged.signals.length > 0 ? merged.signals[0]!.kind : null;
+
+    // Best-effort durable record of the decision (fire or skip-with-signal).
+    if (decision.fire || merged.value > 0.3) {
       await appendIncident({
-        ts: event.ts,
+        ts: Date.now(),
         account,
-        txHash: event.txHash,
-        blockNumber: event.blockNumber,
-        score: event.score,
-        receipt: event.receipt,
-        outcome: event.outcome,
+        txHash,
+        blockNumber: "0",
+        score: merged,
+        receipt: classifier,
+        outcome: decision.fire ? "fired" : "skipped",
       }).catch((err) => app.log.warn({ err: String(err) }, "log append failed"));
     }
 
     return {
       fire: decision.fire,
       threshold: decision.threshold,
-      maxScore: decision.maxScore,
-      withdrawCalldata,
-      dispatch,
+      account,
+      adapter,
+      txHash,
+      score: merged,
+      reason,
     };
   });
 
   return app;
 }
 
-function toRaw(t: RawTxWire): RawTx {
+function toRaw(t: QueryTx): RawTx | null {
+  if (!t.functionName) return null;
+  let input: Hex;
+  try {
+    input = encodeFunctionData({
+      abi: fakeLendingPoolAbi,
+      // biome-ignore lint/suspicious/noExplicitAny: viem's typed encodeFunctionData
+      // requires a literal function name; KH supplies it as a string at runtime.
+      functionName: t.functionName as any,
+      // biome-ignore lint/suspicious/noExplicitAny: same — args shape is per-fn.
+      args: t.args as any,
+    });
+  } catch {
+    return null;
+  }
   return {
     hash: t.hash,
     blockNumber: BigInt(t.blockNumber),
     from: t.from,
-    to: t.to,
+    to: config().pool,
     value: BigInt(t.value),
-    input: t.input,
+    input,
+  };
+}
+
+function mergeClassifierIntoScore(
+  rule: Score,
+  classifier: ClassifierReceipt | null,
+): Score {
+  if (!classifier) return rule;
+  // Mirrors checkClassifier delta from agent/src/detection/classifier.ts:
+  // p_nefarious >= 0.5 contributes to the score.
+  const delta = classifier.pNefarious >= 0.5 ? classifier.pNefarious * 0.4 : 0;
+  if (delta === 0) return rule;
+  const signals = [
+    ...rule.signals,
+    {
+      kind: "classifier.nefarious" as const,
+      delta,
+      detail: `p_nefarious=${classifier.pNefarious.toFixed(3)}`,
+    },
+  ];
+  const sum = signals.reduce((acc, s) => acc + s.delta, 0);
+  return {
+    value: Math.max(0, Math.min(1, sum)),
+    shortCircuited: rule.shortCircuited,
+    signals,
   };
 }
 

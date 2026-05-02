@@ -10,15 +10,6 @@ export interface Config {
   classifierUrl: string;
   ogStorageUrl: string;
   ogStorageAuth: string | undefined;
-  keeperHubUrl: string;
-  keeperHubKey: string | undefined;
-  // Webhook URL of the Phulax Guardian workflow in KeeperHub. The agent POSTs
-  // here when risk score crosses threshold; KH signs and broadcasts
-  // `PhulaxAccount.withdraw(adapter)` with the org wallet (the on-chain
-  // `agent` role). Empty string is allowed at boot so non-firing flows
-  // (tests, detection-only dev) work; executeWithdraw throws if it fires
-  // without a URL configured.
-  keeperHubWebhookUrl: string;
   serverPort: number;
 }
 
@@ -31,9 +22,6 @@ export function loadConfig(): Config {
     classifierUrl: opt("CLASSIFIER_URL", "http://localhost:8000/classify"),
     ogStorageUrl: opt("OG_STORAGE_URL", "http://localhost:5678"),
     ogStorageAuth: process.env["OG_STORAGE_AUTH"],
-    keeperHubUrl: opt("KEEPERHUB_URL", "http://localhost:3000"),
-    keeperHubKey: process.env["KEEPERHUB_API_KEY"],
-    keeperHubWebhookUrl: opt("KH_WEBHOOK_URL", ""),
     serverPort: Number(opt("PORT", "8787")),
   };
 }

@@ -13,21 +13,39 @@ paths converge on `Indexer.upload(...)` and `Batcher.exec(...)`.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 SCRIPTS_DIR = Path(__file__).resolve().parent / "scripts"
 HELPER = SCRIPTS_DIR / "og.mjs"
 
+# 0G testnet `Indexer.upload` is CPU-bound on Merkle-root construction at ~256
+# bytes per leaf. ~1 GB blobs are practically unuploadable in a single tx
+# from this client (observed > 30 min CPU at 100% with no progress on a
+# 988 MB safetensors). For anything above this threshold we record a
+# `{sha256, size}` placeholder in the manifest instead of a `{rootHash, txHash}`
+# and let the publish-and-replay story fall back to the offline hash. The
+# Fly.io inference image already serves the merged weights directly.
+MAX_BLOB_BYTES = int(os.environ.get("OG_MAX_BLOB_BYTES", str(64 * 1024 * 1024)))
+
 
 @dataclass
 class WriteResult:
     root_hash: str
     tx_hash: str
+
+
+@dataclass
+class SkippedBlob:
+    """Returned in place of a `WriteResult` when a file exceeds MAX_BLOB_BYTES."""
+    sha256: str
+    size: int
+    reason: str = "size > OG_MAX_BLOB_BYTES"
 
 
 @dataclass
@@ -72,14 +90,26 @@ class OGStorageClient:
             )
         return json.loads(proc.stdout.decode("utf-8"))
 
-    def upload_file(self, path: Path) -> WriteResult:
-        """Upload a blob; returns the on-chain root hash + tx hash."""
+    def upload_file(self, path: Path) -> "WriteResult | SkippedBlob":
+        """Upload a blob; returns the on-chain root hash + tx hash.
+
+        Falls back to a `SkippedBlob` placeholder when the file is larger
+        than `MAX_BLOB_BYTES` so the caller's manifest still gets a
+        deterministic pointer (sha256) for files we cannot pin in one tx.
+        """
+        size = path.stat().st_size
+        if size > MAX_BLOB_BYTES:
+            h = hashlib.sha256()
+            with path.open("rb") as fh:
+                for chunk in iter(lambda: fh.read(1 << 20), b""):
+                    h.update(chunk)
+            return SkippedBlob(sha256="0x" + h.hexdigest(), size=size)
         out = self._invoke("upload-blob", {"path": str(path)})
         return WriteResult(root_hash=out["rootHash"], tx_hash=out["txHash"])
 
-    def upload_dir(self, root: Path) -> dict[str, WriteResult]:
-        """Upload every file under `root`; returns {relative_path: WriteResult}."""
-        results: dict[str, WriteResult] = {}
+    def upload_dir(self, root: Path) -> dict[str, "WriteResult | SkippedBlob"]:
+        """Upload every file under `root`; returns {relative_path: result}."""
+        results: dict[str, WriteResult | SkippedBlob] = {}
         for p in sorted(root.rglob("*")):
             if p.is_file():
                 results[p.relative_to(root).as_posix()] = self.upload_file(p)

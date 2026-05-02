@@ -12,9 +12,6 @@ setConfig({
   classifierUrl: "http://localhost/classify",
   ogStorageUrl: "http://localhost",
   ogStorageAuth: undefined,
-  keeperHubUrl: "http://localhost",
-  keeperHubKey: undefined,
-  keeperHubWebhookUrl: "",
   serverPort: 8787,
 });
 

@@ -3,16 +3,21 @@ primary_region = "iad"
 
 [build]
   dockerfile = "Dockerfile"
-  # Build context must be the repo root so ml/prompt/ is in scope (see Dockerfile).
-  # Run `fly deploy --config inference/fly.toml --dockerfile inference/Dockerfile`
-  # from the repo root, OR keep the convenience script in inference/README.md.
+  # `transformers` stage bakes ml/artifacts/merged into /app/model so the
+  # runtime promotes itself to phase=transformers on boot. Default `stub`
+  # target stays buildable for tests (see Dockerfile + .dockerignore).
+  target = "transformers"
+  # Build context must be the repo root so ml/prompt/ + ml/artifacts/merged
+  # are in scope (see Dockerfile).
+  # Run `fly deploy --config inference/fly.toml --dockerfile inference/Dockerfile --remote-only`
+  # from the repo root.
 
 [env]
   PHULAX_INFERENCE_PHASE = "auto"
   PHULAX_LOG_LEVEL = "INFO"
-  # PHULAX_MODEL_DIR intentionally unset → stub mode until merged weights are
-  # baked into a downstream image stage. Stub still HMAC-signs identically.
-  # PHULAX_INFERENCE_HMAC_KEY is a fly secret, not an env var.
+  # PHULAX_MODEL_DIR is set to /app/model by the `transformers` Dockerfile
+  # stage; do not duplicate it here. PHULAX_INFERENCE_HMAC_KEY is a fly
+  # secret, not an env var.
 
 [http_service]
   internal_port = 8000
@@ -30,6 +35,8 @@ primary_region = "iad"
     path = "/healthz"
 
 [[vm]]
-  memory = "1gb"
+  # Qwen2.5-0.5B + transformers needs ~1.4 GB resident; bumped from 1gb at
+  # the same time the `transformers` build target was wired in.
+  memory = "2gb"
   cpu_kind = "shared"
   cpus = 1

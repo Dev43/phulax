@@ -1,8 +1,8 @@
-# `agent/` — Phulax guardian runtime
+# `agent/` — Phulax detection service
 
-TypeScript guardian (Node 20 + viem + fastify) that watches a lending pool, scores transactions through a 4-tier detection pipeline, and pulls user funds out via `PhulaxAccount.withdraw(adapter)` when the score crosses the iNFT-policy threshold. KeeperHub fires this off as part of the per-tx workflow on every 0G block.
+Stateless TypeScript HTTP service (Node 20 + viem + fastify) that exposes the 4-tier detection pipeline as two endpoints. **KeeperHub owns the per-block loop and signs the withdraw**; this service holds zero private keys and never broadcasts a transaction. The runtime container has no signing surface.
 
-This is **the only signing surface in the runtime container.** `src/exec/withdraw.ts` is the only module that holds a private key, can only call `withdraw(adapter)`, and the contract hard-codes the recipient to `owner`. Even if the agent key leaks, the blast radius is "user gets force-exited", not theft (see `tasks/todo.md` §3 invariants).
+The flow: KH `Block` trigger → `web3/query-transactions` (filter pool txs) → `POST /detect-features` (this service, runs tier 1/2/3) → `POST /classify` (the inference endpoint, tier 4 — this is the slot where 0G sealed inference plugs in once it serves our LoRA) → `POST /decide` (this service, aggregates) → conditional `web3/write-contract` for `PhulaxAccount.withdraw` (signed by KH org wallet, the on-chain `agent` role) → `0g-storage/log-append` receipt. See `workflows/phulax-guardian.workflow.json` for the wired-up shape.
 
 ## Source layout
 
@@ -12,15 +12,13 @@ src/
 │   ├── invariants.ts   tier 1 (~5 ms)   "math broke"
 │   ├── oracle.ts       tier 2           pool price vs. Chainlink/TWAP > 2 %
 │   ├── vector.ts       tier 3 (~100 ms) cosine similarity vs. 0G KV exploit corpus
-│   ├── classifier.ts   tier 4 (~300 ms) HTTP call to inference/server.py
+│   ├── classifier.ts   tier 4 (~300 ms) signal-merge helper for receipts from inference/
 │   ├── detect.ts       aggregator      max-across-block, weighted, capped
 │   └── hydrate.ts      ALL I/O isolated here so detect() stays pure
 ├── risk/           # threshold logic + iNFT-policy override
 ├── og/             # 0G Storage client (kv.ts + log.ts over og/http.ts)
-├── keeperhub/      # workflow defs + thin MCP client
-├── exec/withdraw.ts   # the ONLY module that signs (single selector)
-├── server.ts          # /stream (SSE) + /incidents/:account + /feedback + /detect-batch
-└── chain/             # viem clients + typed ABIs (re-exported from contracts/generated/wagmi.ts)
+├── server.ts       # /detect-features + /decide + /feedback + /incidents/:account
+└── chain/          # viem read-only client (no wallet) + typed ABIs
 ```
 
 `detect(ctx) -> Score` is pure — no I/O, no side effects. A purity test asserts repeated calls return deep-equal output. Any historical exploit can be replayed through it as a regression by populating a `TxContext` fixture.
@@ -42,12 +40,13 @@ Run a single fixture: `vitest run path/to/file.test.ts -t "name"`.
 
 Set in `agent/.env` (see `.env.example`):
 
-- `RPC_URL` — `https://evmrpc-testnet.0g.ai` for Galileo. WSS is `wss://evmrpc-testnet.0g.ai/ws/` (trailing slash matters — see CLAUDE.md sharp edges).
+- `RPC_URL` — `https://evmrpc-testnet.0g.ai` for Galileo. Read-only — used by `hydrate()` for blockN/N-1 reads.
 - `CHAIN_ID` — `16602` (Galileo).
-- `POOL_ADDRESS`, `PHULAX_ACCOUNT_ADDRESS`, `PHULAX_ADAPTER_ADDRESS`, `HUB_ADDRESS`, `DEMO_ASSET_ADDRESS` — populated from the `Deploy.s.sol` broadcast.
-- `AGENT_PRIVATE_KEY` — funds the single-selector `withdraw` calls. Must hold the key for the address registered as `PhulaxAccount.agent` (`0x47d3CF2a314aeF4Da43dB8eBC7Eb818bF2496260` on the current testnet deploy). Blast radius is forced exit — keep it out of git anyway.
-- `INFERENCE_URL` + `PHULAX_INFERENCE_HMAC_KEY` — public URL of `inference/server.py` and the HMAC key used to verify receipts.
-- `OG_STORAGE_*` — KV + Log endpoints for the 0G Storage client.
+- `POOL_ADDRESS` — `FakeLendingPool` from the `Deploy.s.sol` broadcast.
+- `CLASSIFIER_URL` — public URL of `inference/server.py`. Note: in the new flow KH calls this directly; this service no longer hits it from inside `hydrate()`. The env var stays for local replays/tests where the agent reconstructs the full pipeline end-to-end.
+- `OG_STORAGE_*` — KV (vector lookup) + Log (incident receipts).
+
+No `AGENT_PRIVATE_KEY` — the on-chain `agent` role is held by the KeeperHub org wallet (`0x47d3CF2a314aeF4Da43dB8eBC7Eb818bF2496260`), Turnkey-custodied. KH's `web3/write-contract` step in `workflows/phulax-guardian.workflow.json` does the signing.
 
 ## Detection pipeline tier weights (locked)
 

@@ -2,8 +2,8 @@
   "version": 1,
   "exportedAt": "2026-05-02T00:00:00.000Z",
   "workflow": {
-    "name": "Phulax Guardian — Withdraw on Threat",
-    "description": "Webhook fired by the off-chain detector. Calls PhulaxAccount.withdraw(adapter) on Galileo; the contract hard-locks recipient = owner so the workflow's signing wallet (also the on-chain `agent` role) cannot redirect funds. Logs a signed receipt to 0G Storage."
+    "name": "Phulax Guardian — Per-Block Detection",
+    "description": "KeeperHub owns the loop. Every Galileo block: query pool txs → call our detector for tier-1/2/3 → call inference for the classifier (this step is the slot where 0G-served sealed inference plugs in once it serves our LoRA — stand-in is our self-hosted endpoint) → aggregate → conditional withdraw. PhulaxAccount.withdraw signed by the org wallet (the on-chain `agent` role); contract hard-locks recipient = owner. Replace PHULAX_SVC_URL and PHULAX_INFERENCE_URL with real hosts before importing."
   },
   "nodes": [
     {
@@ -11,28 +11,134 @@
       "type": "trigger",
       "position": { "x": 0, "y": 0 },
       "data": {
-        "label": "Detector Webhook",
+        "label": "Block",
         "type": "trigger",
         "config": {
-          "triggerType": "Webhook",
-          "webhookSchema": "[{\"name\":\"account\",\"type\":\"string\",\"required\":true},{\"name\":\"adapter\",\"type\":\"string\",\"required\":true},{\"name\":\"txHash\",\"type\":\"string\",\"required\":false},{\"name\":\"score\",\"type\":\"number\",\"required\":false},{\"name\":\"reason\",\"type\":\"string\",\"required\":false}]"
+          "triggerType": "Block",
+          "network": "16602",
+          "blockInterval": "1"
+        }
+      }
+    },
+    {
+      "id": "action-query",
+      "type": "action",
+      "position": { "x": 240, "y": 0 },
+      "data": {
+        "label": "Query Pool Txs",
+        "type": "action",
+        "config": {
+          "actionType": "web3/query-transactions",
+          "network": "16602",
+          "contractAddress": "0xb1DE7278b81e1Fd40027bDac751117AE960d8747",
+          "abi": "[{\"type\":\"function\",\"name\":\"withdraw\",\"stateMutability\":\"nonpayable\",\"inputs\":[{\"name\":\"asset\",\"type\":\"address\"},{\"name\":\"amount\",\"type\":\"uint256\"},{\"name\":\"to\",\"type\":\"address\"}],\"outputs\":[]},{\"type\":\"function\",\"name\":\"borrow\",\"stateMutability\":\"nonpayable\",\"inputs\":[{\"name\":\"asset\",\"type\":\"address\"},{\"name\":\"amount\",\"type\":\"uint256\"}],\"outputs\":[]},{\"type\":\"function\",\"name\":\"setAssetPrice\",\"stateMutability\":\"nonpayable\",\"inputs\":[{\"name\":\"asset\",\"type\":\"address\"},{\"name\":\"price\",\"type\":\"uint256\"}],\"outputs\":[]},{\"type\":\"function\",\"name\":\"withdrawReserves\",\"stateMutability\":\"nonpayable\",\"inputs\":[{\"name\":\"asset\",\"type\":\"address\"},{\"name\":\"to\",\"type\":\"address\"}],\"outputs\":[]}]",
+          "abiFunction": "withdraw",
+          "fromBlock": "{{@trigger-1:Block.blockNumber}}",
+          "toBlock": "{{@trigger-1:Block.blockNumber}}"
+        }
+      }
+    },
+    {
+      "id": "action-cond-has-txs",
+      "type": "action",
+      "position": { "x": 480, "y": 0 },
+      "data": {
+        "label": "Has matching txs?",
+        "type": "action",
+        "config": {
+          "actionType": "Condition",
+          "condition": "{{@action-query:Query Pool Txs.matchCount}} > 0"
+        }
+      }
+    },
+    {
+      "id": "action-detect",
+      "type": "action",
+      "position": { "x": 720, "y": 0 },
+      "data": {
+        "label": "Detect (tier 1/2/3)",
+        "type": "action",
+        "config": {
+          "actionType": "HTTP Request",
+          "endpoint": "PHULAX_SVC_URL/detect-features",
+          "httpMethod": "POST",
+          "httpHeaders": "{\"content-type\":\"application/json\"}",
+          "httpBody": "{\"account\":\"0xA70060465c1cD280E72366082fE20C7618C18a66\",\"adapter\":\"0x0c39fF914e41DA07B815937ee70772ba21A5C760\",\"txs\":{{@action-query:Query Pool Txs.transactions}}}"
+        }
+      }
+    },
+    {
+      "id": "action-cond-has-candidate",
+      "type": "action",
+      "position": { "x": 960, "y": 0 },
+      "data": {
+        "label": "Has candidate?",
+        "type": "action",
+        "config": {
+          "actionType": "Condition",
+          "condition": "{{@action-detect:Detect (tier 1/2/3).hasCandidate}} == true"
+        }
+      }
+    },
+    {
+      "id": "action-classify",
+      "type": "action",
+      "position": { "x": 1200, "y": 0 },
+      "data": {
+        "label": "Classify (tier 4 — 0G compute slot)",
+        "type": "action",
+        "config": {
+          "actionType": "HTTP Request",
+          "endpoint": "PHULAX_INFERENCE_URL/classify",
+          "httpMethod": "POST",
+          "httpHeaders": "{\"content-type\":\"application/json\"}",
+          "httpBody": "{{@action-detect:Detect (tier 1/2/3).classifierInput}}"
+        }
+      }
+    },
+    {
+      "id": "action-decide",
+      "type": "action",
+      "position": { "x": 1440, "y": 0 },
+      "data": {
+        "label": "Decide (aggregate)",
+        "type": "action",
+        "config": {
+          "actionType": "HTTP Request",
+          "endpoint": "PHULAX_SVC_URL/decide",
+          "httpMethod": "POST",
+          "httpHeaders": "{\"content-type\":\"application/json\"}",
+          "httpBody": "{\"account\":\"0xA70060465c1cD280E72366082fE20C7618C18a66\",\"adapter\":\"0x0c39fF914e41DA07B815937ee70772ba21A5C760\",\"txHash\":\"{{@action-detect:Detect (tier 1/2/3).candidate.txHash}}\",\"ruleScore\":{{@action-detect:Detect (tier 1/2/3).candidate.ruleScore}},\"classifier\":{{@action-classify:Classify (tier 4 — 0G compute slot)}}}"
+        }
+      }
+    },
+    {
+      "id": "action-cond-fire",
+      "type": "action",
+      "position": { "x": 1680, "y": 0 },
+      "data": {
+        "label": "Fire?",
+        "type": "action",
+        "config": {
+          "actionType": "Condition",
+          "condition": "{{@action-decide:Decide (aggregate).fire}} == true"
         }
       }
     },
     {
       "id": "action-withdraw",
       "type": "action",
-      "position": { "x": 280, "y": 0 },
+      "position": { "x": 1920, "y": 0 },
       "data": {
         "label": "PhulaxAccount.withdraw",
         "type": "action",
         "config": {
           "actionType": "web3/write-contract",
           "network": "16602",
-          "contractAddress": "{{@trigger-1:Detector Webhook.account}}",
+          "contractAddress": "0xA70060465c1cD280E72366082fE20C7618C18a66",
           "abi": "[{\"type\":\"function\",\"name\":\"withdraw\",\"stateMutability\":\"nonpayable\",\"inputs\":[{\"name\":\"adapter\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]}]",
           "abiFunction": "withdraw",
-          "functionArgs": "[\"{{@trigger-1:Detector Webhook.adapter}}\"]",
+          "functionArgs": "[\"0x0c39fF914e41DA07B815937ee70772ba21A5C760\"]",
           "priorityFeeGwei": "2"
         }
       }
@@ -40,22 +146,29 @@
     {
       "id": "action-receipt",
       "type": "action",
-      "position": { "x": 560, "y": 0 },
+      "position": { "x": 2160, "y": 0 },
       "data": {
         "label": "0G Storage receipt",
         "type": "action",
         "config": {
           "actionType": "0g-storage/log-append",
           "streamId": "REPLACE_WITH_RECEIPT_STREAM_ID",
-          "payload": "{\"event\":\"withdraw\",\"account\":\"{{@trigger-1:Detector Webhook.account}}\",\"adapter\":\"{{@trigger-1:Detector Webhook.adapter}}\",\"sourceTxHash\":\"{{@trigger-1:Detector Webhook.txHash}}\",\"score\":\"{{@trigger-1:Detector Webhook.score}}\",\"reason\":\"{{@trigger-1:Detector Webhook.reason}}\",\"withdrawTxHash\":\"{{@action-withdraw:PhulaxAccount.withdraw.transactionHash}}\",\"chainId\":16602}",
+          "payload": "{\"event\":\"withdraw\",\"blockNumber\":\"{{@trigger-1:Block.blockNumber}}\",\"sourceTxHash\":\"{{@action-detect:Detect (tier 1/2/3).candidate.txHash}}\",\"score\":{{@action-decide:Decide (aggregate).score.value}},\"reason\":\"{{@action-decide:Decide (aggregate).reason}}\",\"withdrawTxHash\":\"{{@action-withdraw:PhulaxAccount.withdraw.transactionHash}}\",\"chainId\":16602}",
           "tag": "phulax.withdraw"
         }
       }
     }
   ],
   "edges": [
-    { "id": "edge-1", "source": "trigger-1", "target": "action-withdraw", "type": "animated" },
-    { "id": "edge-2", "source": "action-withdraw", "target": "action-receipt", "type": "animated" }
+    { "id": "e-1", "source": "trigger-1", "target": "action-query", "type": "animated" },
+    { "id": "e-2", "source": "action-query", "target": "action-cond-has-txs", "type": "animated" },
+    { "id": "e-3", "source": "action-cond-has-txs", "target": "action-detect", "type": "animated" },
+    { "id": "e-4", "source": "action-detect", "target": "action-cond-has-candidate", "type": "animated" },
+    { "id": "e-5", "source": "action-cond-has-candidate", "target": "action-classify", "type": "animated" },
+    { "id": "e-6", "source": "action-classify", "target": "action-decide", "type": "animated" },
+    { "id": "e-7", "source": "action-decide", "target": "action-cond-fire", "type": "animated" },
+    { "id": "e-8", "source": "action-cond-fire", "target": "action-withdraw", "type": "animated" },
+    { "id": "e-9", "source": "action-withdraw", "target": "action-receipt", "type": "animated" }
   ],
   "integrationBindings": []
 }

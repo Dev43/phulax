@@ -1,15 +1,22 @@
 # Phulax inference server.
 #
-# Phase 2: transformers-served Qwen2.5-0.5B + merged LoRA. The image is uniform
-# regardless of phase — server.py stays in stub mode unless PHULAX_MODEL_DIR
-# (mounted at runtime, or baked in via a downstream stage that fetches CIDs
-# from ml/artifacts.json) resolves to a transformers checkpoint.
+# Two final stages:
+#   stub          (default)  — no weights baked in. Fast image for tests + the
+#                              Phase-1 deployment shape. /classify auto-falls-
+#                              back to the deterministic stub.
+#   transformers             — bakes ml/artifacts/merged into /app/model and
+#                              sets PHULAX_MODEL_DIR so the runtime promotes
+#                              itself to phase=transformers on boot. Used by
+#                              the Fly deploy (see inference/fly.toml).
 #
-# Build from the REPO ROOT so the frozen prompt template is in the build
-# context:
-#   docker build -f inference/Dockerfile -t phulax-inference .
+# Build from the REPO ROOT so the frozen prompt template + (for the
+# transformers stage) ml/artifacts/merged are in the build context:
+#   docker build -f inference/Dockerfile -t phulax-inference .                  # stub
+#   docker build -f inference/Dockerfile --target transformers -t … .           # weights
+#   fly deploy --config inference/fly.toml --dockerfile inference/Dockerfile \
+#              --remote-only                                                    # uses fly.toml [build].target
 
-FROM python:3.11-slim AS runtime
+FROM python:3.11-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -36,9 +43,21 @@ COPY inference/server.py ./
 ENV PHULAX_INFERENCE_PHASE=auto \
     PHULAX_MODEL_HASH=stub
 # PHULAX_INFERENCE_HMAC_KEY MUST be supplied at runtime (no default in image).
-# PHULAX_MODEL_DIR (optional): mount the merged checkpoint here to enable
-# real inference. Without it, /classify falls back to the deterministic stub.
 
 EXPOSE 8000
 
 CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
+
+
+# Default target. Tests + CI build this; PHULAX_MODEL_DIR stays unset so
+# /classify uses the deterministic stub.
+FROM base AS stub
+
+
+# Weighted target. Bakes the merged Qwen2.5-0.5B + LoRA checkpoint into the
+# image so /healthz reports phase=transformers and a real model_hash on boot.
+# Requires `ml/artifacts/merged/` in the build context (see .dockerignore for
+# the matching negation). Image grows by ~1 GB.
+FROM base AS transformers
+COPY ml/artifacts/merged /app/model
+ENV PHULAX_MODEL_DIR=/app/model
