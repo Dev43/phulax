@@ -38,6 +38,12 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+# Honor the ml/.env contract the script's error message promises. Loaded
+# before og_client import so OGStorageClient.from_env() sees the values.
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
 from og_client import OGStorageClient, WriteResult
 from prompt.template import TEMPLATE_VERSION
 from finetune.lora import BASE_MODEL
@@ -45,7 +51,10 @@ from finetune.lora import BASE_MODEL
 ROOT = Path(__file__).resolve().parent.parent
 MERGED = ROOT / "artifacts" / "merged"
 GGUF_Q4 = MERGED / "phulax-q4.gguf"
-ADAPTER = ROOT / "artifacts" / "lora" / "adapter.safetensors"
+# PEFT's `save_pretrained` writes `adapter_model.safetensors`. The earlier
+# `adapter.safetensors` name was wrong and caused the publish-log entry to
+# lose its `adapter_cid` pointer (todo §10.1 Stage C step 4).
+ADAPTER = ROOT / "artifacts" / "lora" / "adapter_model.safetensors"
 DATASET = ROOT / "data" / "dataset.jsonl"
 REPORT = ROOT / "eval" / "REPORT.md"
 INDEX = ROOT / "artifacts" / "embeddings_index.json"

@@ -96,10 +96,24 @@ async function main() {
     process.stderr.write(`unknown command: ${cmd}\nusage: og.mjs <upload-blob|kv-put-batch> < args.json\n`);
     process.exit(2);
   }
+
+  // The 0G SDK logs progress to stdout (Indexer.upload, Batcher.exec). The
+  // Python wrapper in ml/og_client.py treats stdout as a JSON channel and
+  // dies on the first chatter line. Redirect stdout writes to stderr while
+  // the SDK runs, then restore for the single result write below.
+  const _stdoutWrite = process.stdout.write.bind(process.stdout);
+  process.stdout.write = process.stderr.write.bind(process.stderr);
+  // Console.log/info/warn/error all eventually call stdout/stderr.write, so
+  // the patch above covers them too — but `console` may be cached against
+  // the original streams; replace its bound methods explicitly to be safe.
+  console.log = (...args) => process.stderr.write(args.map(String).join(" ") + "\n");
+  console.info = console.log;
+  console.warn = console.log;
+
   try {
     const args = await readStdin();
     const out = await fn(args);
-    process.stdout.write(JSON.stringify(out));
+    _stdoutWrite(JSON.stringify(out));
   } catch (err) {
     process.stderr.write(err instanceof Error ? err.message : String(err));
     process.exit(1);

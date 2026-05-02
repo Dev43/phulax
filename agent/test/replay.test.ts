@@ -8,13 +8,13 @@ setConfig({
   rpcUrl: "http://localhost",
   chainId: 1,
   pool: "0x0000000000000000000000000000000000000000",
-  agentPrivateKey: "0x0000000000000000000000000000000000000000000000000000000000000001",
   defaultThreshold: 0.7,
   classifierUrl: "http://localhost/classify",
   ogStorageUrl: "http://localhost",
   ogStorageAuth: undefined,
   keeperHubUrl: "http://localhost",
   keeperHubKey: undefined,
+  keeperHubWebhookUrl: "",
   serverPort: 8787,
 });
 

@@ -15,7 +15,10 @@ export interface DetectionEvent {
   score: Score;
   receipt: ClassifierReceipt | null;
   outcome: "fired" | "skipped";
-  fired?: { withdrawTxHash: Hex } | undefined;
+  // Dispatch ack from the KeeperHub webhook. The chain tx hash is not
+  // known at dispatch time (KH signs and broadcasts asynchronously); the
+  // resulting tx is recorded in the 0G Storage receipt log instead.
+  fired?: { runId: string; dispatchedAt: number } | undefined;
 }
 
 class Bus extends EventEmitter {

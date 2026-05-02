@@ -101,14 +101,17 @@ export async function buildServer() {
       decision.maxIndex >= 0 ? ctxs.filter((c) => c)[decision.maxIndex] ?? null : null;
 
     let withdrawCalldata: Hex | undefined;
-    let firedTx: Hex | undefined;
+    let dispatch: { runId: string; dispatchedAt: number } | undefined;
     if (decision.fire) {
       withdrawCalldata = encodeWithdraw(adapter);
       try {
-        const r = await executeWithdraw(account, adapter);
-        firedTx = r.txHash;
+        dispatch = await executeWithdraw(account, adapter, {
+          txHash: winningCtx?.txHash,
+          score: decision.maxScore?.value,
+          reason: decision.maxScore?.signals[0]?.kind,
+        });
       } catch (err) {
-        app.log.error({ err: String(err) }, "withdraw failed");
+        app.log.error({ err: String(err) }, "withdraw dispatch failed");
       }
     }
 
@@ -120,7 +123,7 @@ export async function buildServer() {
       score: decision.maxScore ?? { value: 0, shortCircuited: false, signals: [] },
       receipt: winningCtx?.classifier ?? null,
       outcome: decision.fire ? "fired" : "skipped",
-      fired: firedTx ? { withdrawTxHash: firedTx } : undefined,
+      fired: dispatch,
     };
     bus.emitDetection(event);
 
@@ -144,7 +147,7 @@ export async function buildServer() {
       threshold: decision.threshold,
       maxScore: decision.maxScore,
       withdrawCalldata,
-      firedTx,
+      dispatch,
     };
   });
 
