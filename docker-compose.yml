@@ -99,7 +99,8 @@ services:
       context: ./keeperhub
       dockerfile: Dockerfile
       target: runner
-    image: phulax/keeperhub:latest
+    image: phulax-keeperhub:latest
+    pull_policy: never
     restart: unless-stopped
     environment:
       <<: [*env_db_connection, *env_aws, *env_sqs, *env_kh_service_keys]
@@ -122,7 +123,8 @@ services:
       dockerfile: deploy/Dockerfile.web
       args:
         NEXT_PUBLIC_BASE_PATH: /web
-    image: phulax/web:latest
+    image: phulax-web:latest
+    pull_policy: never
     restart: unless-stopped
     environment:
       NODE_ENV: production
@@ -135,7 +137,8 @@ services:
     build:
       context: .
       dockerfile: deploy/Dockerfile.agent
-    image: phulax/agent:latest
+    image: phulax-agent:latest
+    pull_policy: never
     restart: unless-stopped
     environment:
       NODE_ENV: production
@@ -156,7 +159,8 @@ services:
       context: .
       dockerfile: inference/Dockerfile
       target: transformers
-    image: phulax/inference:latest
+    image: phulax-inference:latest
+    pull_policy: never
     restart: unless-stopped
     environment:
       PHULAX_INFERENCE_PHASE: auto
