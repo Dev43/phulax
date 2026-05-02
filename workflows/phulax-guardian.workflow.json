@@ -3,7 +3,7 @@
   "exportedAt": "2026-05-02T00:00:00.000Z",
   "workflow": {
     "name": "Phulax Guardian — Per-Block Detection",
-    "description": "KeeperHub owns the loop. Every Galileo block: query pool txs → call our detector for tier-1/2/3 → call inference for the classifier (this step is the slot where 0G-served sealed inference plugs in once it serves our LoRA — stand-in is our self-hosted endpoint) → aggregate → conditional withdraw. PhulaxAccount.withdraw signed by the org wallet (the on-chain `agent` role); contract hard-locks recipient = owner. Replace PHULAX_SVC_URL and PHULAX_INFERENCE_URL with real hosts before importing."
+    "description": "KeeperHub owns the loop. Every Galileo block: query pool Withdraw events → call our detector for tier-1/2/3 (http://localhost:8787, point this at wherever the agent service listens) → call inference for the classifier (https://phulax-inference.fly.dev — this step is the slot where 0G-served sealed inference plugs in once it serves our LoRA) → aggregate → conditional withdraw. PhulaxAccount.withdraw signed by the org wallet (the on-chain `agent` role); contract hard-locks recipient = owner. Receipt streamId is REPLACE_WITH_RECEIPT_STREAM_ID — provision via 0g-storage/log-append once before first run."
   },
   "nodes": [
     {
@@ -25,14 +25,14 @@
       "type": "action",
       "position": { "x": 240, "y": 0 },
       "data": {
-        "label": "Query Pool Txs",
+        "label": "Query Pool Withdraws",
         "type": "action",
         "config": {
-          "actionType": "web3/query-transactions",
+          "actionType": "web3/query-events",
           "network": "16602",
           "contractAddress": "0xb1DE7278b81e1Fd40027bDac751117AE960d8747",
-          "abi": "[{\"type\":\"function\",\"name\":\"withdraw\",\"stateMutability\":\"nonpayable\",\"inputs\":[{\"name\":\"asset\",\"type\":\"address\"},{\"name\":\"amount\",\"type\":\"uint256\"},{\"name\":\"to\",\"type\":\"address\"}],\"outputs\":[]},{\"type\":\"function\",\"name\":\"borrow\",\"stateMutability\":\"nonpayable\",\"inputs\":[{\"name\":\"asset\",\"type\":\"address\"},{\"name\":\"amount\",\"type\":\"uint256\"}],\"outputs\":[]},{\"type\":\"function\",\"name\":\"setAssetPrice\",\"stateMutability\":\"nonpayable\",\"inputs\":[{\"name\":\"asset\",\"type\":\"address\"},{\"name\":\"price\",\"type\":\"uint256\"}],\"outputs\":[]},{\"type\":\"function\",\"name\":\"withdrawReserves\",\"stateMutability\":\"nonpayable\",\"inputs\":[{\"name\":\"asset\",\"type\":\"address\"},{\"name\":\"to\",\"type\":\"address\"}],\"outputs\":[]}]",
-          "abiFunction": "withdraw",
+          "abi": "[{\"type\":\"event\",\"name\":\"Withdraw\",\"anonymous\":false,\"inputs\":[{\"name\":\"reserve\",\"type\":\"address\",\"indexed\":true},{\"name\":\"user\",\"type\":\"address\",\"indexed\":true},{\"name\":\"to\",\"type\":\"address\",\"indexed\":true},{\"name\":\"amount\",\"type\":\"uint256\",\"indexed\":false}]}]",
+          "eventName": "Withdraw",
           "fromBlock": "{{@trigger-1:Block.blockNumber}}",
           "toBlock": "{{@trigger-1:Block.blockNumber}}"
         }
@@ -43,11 +43,11 @@
       "type": "action",
       "position": { "x": 480, "y": 0 },
       "data": {
-        "label": "Has matching txs?",
+        "label": "Has matching events?",
         "type": "action",
         "config": {
           "actionType": "Condition",
-          "condition": "{{@action-query:Query Pool Txs.matchCount}} > 0"
+          "condition": "{{@action-query:Query Pool Withdraws.eventCount}} > 0"
         }
       }
     },
@@ -60,10 +60,10 @@
         "type": "action",
         "config": {
           "actionType": "HTTP Request",
-          "endpoint": "PHULAX_SVC_URL/detect-features",
+          "endpoint": "http://localhost:8787/detect-features",
           "httpMethod": "POST",
           "httpHeaders": "{\"content-type\":\"application/json\"}",
-          "httpBody": "{\"account\":\"0xA70060465c1cD280E72366082fE20C7618C18a66\",\"adapter\":\"0x0c39fF914e41DA07B815937ee70772ba21A5C760\",\"txs\":{{@action-query:Query Pool Txs.transactions}}}"
+          "httpBody": "{\"account\":\"0xA70060465c1cD280E72366082fE20C7618C18a66\",\"adapter\":\"0x0c39fF914e41DA07B815937ee70772ba21A5C760\",\"events\":{{@action-query:Query Pool Withdraws.events}}}"
         }
       }
     },
@@ -89,7 +89,7 @@
         "type": "action",
         "config": {
           "actionType": "HTTP Request",
-          "endpoint": "PHULAX_INFERENCE_URL/classify",
+          "endpoint": "https://phulax-inference.fly.dev/classify",
           "httpMethod": "POST",
           "httpHeaders": "{\"content-type\":\"application/json\"}",
           "httpBody": "{{@action-detect:Detect (tier 1/2/3).classifierInput}}"
@@ -105,7 +105,7 @@
         "type": "action",
         "config": {
           "actionType": "HTTP Request",
-          "endpoint": "PHULAX_SVC_URL/decide",
+          "endpoint": "http://localhost:8787/decide",
           "httpMethod": "POST",
           "httpHeaders": "{\"content-type\":\"application/json\"}",
           "httpBody": "{\"account\":\"0xA70060465c1cD280E72366082fE20C7618C18a66\",\"adapter\":\"0x0c39fF914e41DA07B815937ee70772ba21A5C760\",\"txHash\":\"{{@action-detect:Detect (tier 1/2/3).candidate.txHash}}\",\"ruleScore\":{{@action-detect:Detect (tier 1/2/3).candidate.ruleScore}},\"classifier\":{{@action-classify:Classify (tier 4 — 0G compute slot)}}}"
