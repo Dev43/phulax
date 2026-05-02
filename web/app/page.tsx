@@ -1,17 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ConnectBar } from "@/components/connect-bar";
+import { DemoButtons } from "@/components/demo-buttons";
 import { PositionCard } from "@/components/position-card";
 import { RiskGauge } from "@/components/risk-gauge";
 import { IncidentTimeline } from "@/components/incident-timeline";
 import { LogStream, type LogLine } from "@/components/log-stream";
 import { FeedbackToggle } from "@/components/feedback-toggle";
-import { Button } from "@/components/ui/button";
-import { Zap } from "lucide-react";
 import {
   MOCK_INCIDENTS,
-  fakeStreamTick,
   type Incident,
   type Signal,
 } from "@/lib/mock";
@@ -50,7 +48,6 @@ export default function Home() {
   const [fired, setFired] = useState(false);
   const [incidents, setIncidents] = useState<Incident[]>(MOCK_INCIDENTS);
   const [streamConnected, setStreamConnected] = useState(false);
-  const firingRef = useRef(false);
 
   const pushLogs = useCallback((next: LogLine[]) => {
     setLogs((prev) => {
@@ -99,7 +96,6 @@ export default function Home() {
           pushLogs([{ ts: evt.ts, level: evt.level, msg: evt.msg }]);
           break;
         case "score":
-          if (firingRef.current) return;
           setScore(evt.score);
           setSignals(evt.signals);
           break;
@@ -126,44 +122,6 @@ export default function Home() {
     return () => es.close();
   }, [pushLogs]);
 
-  const triggerAttack = useCallback(() => {
-    if (firingRef.current) return;
-    firingRef.current = true;
-    setFired(true);
-    setScore(0.93);
-    setSignals([
-      { name: "invariant", weight: 0.6, detail: "share price NON-MONOTONIC ⚠" },
-      { name: "oracle", weight: 0.2, detail: "Δ vs Chainlink = 4.1% ⚠" },
-      { name: "vector", weight: 0.3, detail: "top-1 cluster=cream-2021 cos=0.91" },
-      { name: "classifier", weight: 0.31, detail: "p_nefarious=0.94" },
-    ]);
-    const events = fakeStreamTick({ fire: true });
-    const lines: LogLine[] = events
-      .filter((e): e is Extract<typeof e, { kind: "log" }> => e.kind === "log")
-      .map((e) => ({ ts: e.ts, level: e.level, msg: e.msg }));
-    // stagger writes so the log scrolls visibly
-    lines.forEach((line, i) => {
-      setTimeout(() => pushLogs([line]), i * 220);
-    });
-    setTimeout(() => {
-      setIncidents((prev) => [
-        {
-          id: `i_${Date.now()}`,
-          ts: Date.now(),
-          score: 0.93,
-          outcome: "fired",
-          txHash: "0x9af3…c12d",
-          reason: "demo attack — vector match cream-2021 + classifier 0.94",
-        },
-        ...prev,
-      ]);
-    }, lines.length * 220 + 200);
-    setTimeout(() => {
-      firingRef.current = false;
-      setFired(false);
-    }, lines.length * 220 + 2000);
-  }, [pushLogs]);
-
   return (
     <div className="flex min-h-screen flex-col">
       <ConnectBar />
@@ -178,10 +136,7 @@ export default function Home() {
               one screen · one job · make the agent's thinking visible
             </p>
           </div>
-          <Button variant="danger" size="sm" onClick={triggerAttack} disabled={fired}>
-            <Zap className="h-4 w-4" />
-            {fired ? "attack in progress…" : "Demo: simulate attack"}
-          </Button>
+          <DemoButtons onLog={onUserLog} />
         </div>
 
         <div className="grid gap-6 lg:grid-cols-3">
