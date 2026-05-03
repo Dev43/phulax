@@ -1,0 +1,192 @@
+{
+  "version": 1,
+  "exportedAt": "2026-05-03T03:25:59.262Z",
+  "workflow": {
+    "name": "Inference and KV get/put",
+    "description": ""
+  },
+  "nodes": [
+    {
+      "id": "f7O5dP849xzRv6mo1Ed2m",
+      "data": {
+        "type": "trigger",
+        "label": "",
+        "config": {
+          "triggerType": "Manual"
+        },
+        "status": "idle",
+        "description": ""
+      },
+      "type": "trigger",
+      "position": {
+        "x": -274.3389726001344,
+        "y": 31.438773934042047
+      }
+    },
+    {
+      "id": "3ZbHPxXot9lJtZoy2ZoAs",
+      "data": {
+        "type": "action",
+        "label": "",
+        "config": {
+          "network": "16602",
+          "rootHash": "0xe841020b75288d3a81f0c4e169158c25d6abe671b23e1f0b07ea0d72cde5dc18",
+          "actionType": "0g-storage/kv-get"
+        },
+        "status": "idle",
+        "enabled": false,
+        "description": ""
+      },
+      "type": "action",
+      "position": {
+        "x": 435.05939940210186,
+        "y": 50.10518539768701
+      }
+    },
+    {
+      "id": "zBLFm9M8Vi2D08530x9cC",
+      "data": {
+        "type": "action",
+        "label": "",
+        "config": {
+          "key": "phulax/smoke/hello",
+          "value": "world",
+          "network": "16602",
+          "streamId": "0x000000000000000000000000000000000000000000000000000000007068756c",
+          "actionType": "0g-storage/kv-put"
+        },
+        "status": "idle",
+        "enabled": false,
+        "description": ""
+      },
+      "type": "action",
+      "position": {
+        "x": 311.5323688288435,
+        "y": 406.18792921176873
+      }
+    },
+    {
+      "id": "Yo4YBzD-E-bi8x8FrAE3e",
+      "data": {
+        "type": "action",
+        "label": "",
+        "config": {
+          "prompt": "hi",
+          "network": "16602",
+          "maxTokens": "10",
+          "actionType": "0g-compute/inference",
+          "temperature": "0.1",
+          "systemPrompt": "hi",
+          "providerAddress": "{{@4qHBk7LOB-RGa9-6Qb5Ae:List Providers.defaultProvider}}"
+        },
+        "status": "idle",
+        "enabled": true,
+        "description": ""
+      },
+      "type": "action",
+      "position": {
+        "x": 529.3611577392609,
+        "y": -475.13613413797145
+      }
+    },
+    {
+      "id": "4qHBk7LOB-RGa9-6Qb5Ae",
+      "data": {
+        "type": "action",
+        "label": "",
+        "config": {
+          "network": "16602",
+          "actionType": "0g-compute/list-providers"
+        },
+        "status": "idle",
+        "description": ""
+      },
+      "type": "action",
+      "position": {
+        "x": -13.212464284355846,
+        "y": -184.1404403142285
+      }
+    },
+    {
+      "id": "SOPA06iot3wgP-zjLmFCq",
+      "data": {
+        "type": "action",
+        "label": "",
+        "config": {
+          "network": "16602",
+          "actionType": "0g-compute/fund-provider",
+          "initialLedgerOG": "3",
+          "providerAddress": "{{@4qHBk7LOB-RGa9-6Qb5Ae:List Providers.defaultProvider}}",
+          "transferAmountOG": "1"
+        },
+        "status": "idle",
+        "description": ""
+      },
+      "type": "action",
+      "position": {
+        "x": 237.8687270431661,
+        "y": -401.8616637642949
+      }
+    },
+    {
+      "id": "f2i_grmWkaJP16zY3IqNv",
+      "data": {
+        "type": "action",
+        "label": "",
+        "config": {},
+        "status": "idle",
+        "description": ""
+      },
+      "type": "action",
+      "position": {
+        "x": 801.3611577392609,
+        "y": -475.13613413797145
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "rs3tbQerwt5MQ3C5y44yQ",
+      "type": "animated",
+      "source": "f7O5dP849xzRv6mo1Ed2m",
+      "target": "3ZbHPxXot9lJtZoy2ZoAs"
+    },
+    {
+      "id": "SSigkjX6qEvkHSmk9kvl1",
+      "type": "animated",
+      "source": "f7O5dP849xzRv6mo1Ed2m",
+      "target": "zBLFm9M8Vi2D08530x9cC"
+    },
+    {
+      "id": "5cgvzT9oz1v6zA53F-UtW",
+      "type": "animated",
+      "source": "f7O5dP849xzRv6mo1Ed2m",
+      "target": "4qHBk7LOB-RGa9-6Qb5Ae",
+      "sourceHandle": null,
+      "targetHandle": null
+    },
+    {
+      "id": "3OlMxiLmNRCkcnS_tved2",
+      "type": "animated",
+      "source": "SOPA06iot3wgP-zjLmFCq",
+      "target": "Yo4YBzD-E-bi8x8FrAE3e",
+      "sourceHandle": null,
+      "targetHandle": null
+    },
+    {
+      "id": "S-HAXL0GMNY1KDTAEr_iu",
+      "type": "animated",
+      "source": "4qHBk7LOB-RGa9-6Qb5Ae",
+      "target": "SOPA06iot3wgP-zjLmFCq",
+      "sourceHandle": null,
+      "targetHandle": null
+    },
+    {
+      "id": "JBWhuz48Yfckp7kBI43rv",
+      "type": "animated",
+      "source": "Yo4YBzD-E-bi8x8FrAE3e",
+      "target": "f2i_grmWkaJP16zY3IqNv"
+    }
+  ],
+  "integrationBindings": []
+}
