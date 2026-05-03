@@ -147,6 +147,16 @@ services:
       BETTER_AUTH_URL: "https://${PHULAX_HOST:-localhost}"
       BETTER_AUTH_TRUSTED_ORIGINS: "https://${PHULAX_HOST:-localhost} http://${PHULAX_HOST:-localhost}"
       NEXT_PUBLIC_APP_URL: "https://${PHULAX_HOST:-localhost}"
+      # Switch the workflow runtime to Postgres-backed pg-boss. KH's
+      # instrumentation.ts:94 auto-starts the in-process worker when this
+      # is set, so no separate executor service is needed. Falls back to
+      # @workflow/world-local (filesystem, no worker → runs sit pending)
+      # when unset.
+      WORKFLOW_TARGET_WORLD: "@workflow/world-postgres"
+      WORKFLOW_POSTGRES_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-keeperhub}
+      # Integration encryption key — used when the executor reads
+      # workflow integration secrets out of the DB.
+      INTEGRATION_ENCRYPTION_KEY: "${INTEGRATION_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}"
       # Internal hostname for inference — KH workflow HTTP steps resolve this
       # via Docker DNS instead of going out through Caddy.
       PHULAX_INFERENCE_URL: http://inference:8000

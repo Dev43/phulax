@@ -6,22 +6,26 @@
 # validates enum literals at parse time, so the UPDATE errors with
 # "invalid input value for enum status: paused" even though the table is empty).
 #
-# Run from /opt/phulax on the box:
-#   chmod +x deploy/fix-kh-db.sh && bash deploy/fix-kh-db.sh
+# Strategy (drizzle commits each migration file in its own transaction, so
+# earlier migrations persist when a later one fails):
+#   1. Run setup once — fails at the bad UPDATE, but the schema/enum exists
+#   2. ALTER the enum to add 'paused'
+#   3. Re-run setup — bad migration now parses (matches 0 rows) and the rest
+#      of the migrations apply cleanly
 #
-# It's idempotent — safe to re-run.
+# Run from /opt/phulax on the box:
+#   bash deploy/fix-kh-db.sh
+#
+# Idempotent — safe to re-run.
 
 set -euo pipefail
 
-# Resolve the repo root via BASH_SOURCE so the script works under `bash file`,
-# `./file`, or being run from any cwd.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$REPO_ROOT"
 
 if [[ ! -f docker-compose.yml ]]; then
     echo "ERROR: docker-compose.yml not found in $REPO_ROOT"
-    echo "Make sure you ran 'git pull' and that the file exists at the repo root."
     exit 1
 fi
 
@@ -29,25 +33,14 @@ run_psql() {
     docker compose exec -T db psql -U postgres -d keeperhub "$@"
 }
 
-echo "==> Step 1: inspect what enums exist in the workflow schema"
-run_psql -c "
-SELECT n.nspname AS schema, t.typname AS enum_name,
-       string_agg(e.enumlabel, ', ' ORDER BY e.enumsortorder) AS values
-FROM pg_type t
-JOIN pg_enum e ON t.oid = e.enumtypid
-JOIN pg_namespace n ON t.typnamespace = n.oid
-WHERE n.nspname = 'workflow'
-GROUP BY n.nspname, t.typname;
-" || echo "(workflow schema may not exist yet — that's fine)"
+run_migrate() {
+    docker compose --profile init run --rm keeperhub-migrate "$@"
+}
 
-echo
-echo "==> Step 2: ALTER every enum in workflow schema to add 'paused' if missing"
-# Loop over every enum in workflow schema and ADD VALUE 'paused' IF NOT EXISTS.
-# Wrapped in a DO block so we don't have to know the exact enum name in advance.
-run_psql -c "
+patch_workflow_enums() {
+    run_psql -c "
 DO \$\$
-DECLARE
-  e record;
+DECLARE e record;
 BEGIN
   FOR e IN
     SELECT n.nspname AS schema, t.typname AS enum_name
@@ -57,42 +50,64 @@ BEGIN
   LOOP
     BEGIN
       EXECUTE format('ALTER TYPE %I.%I ADD VALUE IF NOT EXISTS %L', e.schema, e.enum_name, 'paused');
-      RAISE NOTICE 'patched enum %.%', e.schema, e.enum_name;
+      RAISE NOTICE 'patched %.% (added paused)', e.schema, e.enum_name;
     EXCEPTION WHEN others THEN
-      RAISE NOTICE 'skipping %.% (%): %', e.schema, e.enum_name, SQLSTATE, SQLERRM;
+      RAISE NOTICE 'skip %.% (%): %', e.schema, e.enum_name, SQLSTATE, SQLERRM;
     END;
   END LOOP;
 END
 \$\$;
-" || echo "(no workflow schema yet — proceeding to setup)"
+"
+}
+
+echo "==> Pass 1: run pnpm db:setup (expected to fail at the paused-enum migration; that's fine — it creates the schema)"
+run_migrate pnpm db:setup || echo "  (pass 1 failed as expected — schema/enum should now exist)"
 
 echo
-echo "==> Step 3: re-run pnpm db:setup (migrations + workflow setup + seeds)"
-if docker compose --profile init run --rm keeperhub-migrate pnpm db:setup; then
+echo "==> Inspect: enums in workflow schema after pass 1"
+run_psql -c "
+SELECT n.nspname AS schema, t.typname AS enum_name,
+       string_agg(e.enumlabel, ', ' ORDER BY e.enumsortorder) AS values
+FROM pg_type t
+JOIN pg_enum e ON t.oid = e.enumtypid
+JOIN pg_namespace n ON t.typnamespace = n.oid
+WHERE n.nspname = 'workflow'
+GROUP BY n.nspname, t.typname;" || true
+
+echo
+echo "==> Patch: ALTER every workflow enum to ADD VALUE 'paused' IF NOT EXISTS"
+patch_workflow_enums
+
+echo
+echo "==> Pass 2: re-run pnpm db:setup (should succeed past the previously-failing migration)"
+if run_migrate pnpm db:setup; then
     echo
-    echo "==> SUCCESS: db:setup completed."
-    echo "==> Step 4: restart keeperhub so it picks up the now-healthy DB"
-    docker compose restart keeperhub
-    sleep 3
+    echo "==> SUCCESS: workflow-postgres schema is in place."
+    echo "==> Restart KH so it picks up WORKFLOW_TARGET_WORLD=@workflow/world-postgres"
+    docker compose up -d --force-recreate keeperhub
+    sleep 5
     docker compose ps keeperhub
     exit 0
 fi
 
 echo
-echo "==> db:setup still failing. Falling back to migrate-only path."
-echo "==> This drops the half-built workflow schema and runs only KH's own"
-echo "==> drizzle migrations + seeds. KH UI will load; workflow execution"
-echo "==> won't work (would need to bump @workflow/world-postgres)."
+echo "==> Pass 2 still failing. Inspecting current state:"
+run_psql -c "
+SELECT n.nspname AS schema, t.typname AS enum_name,
+       string_agg(e.enumlabel, ', ' ORDER BY e.enumsortorder) AS values
+FROM pg_type t
+JOIN pg_enum e ON t.oid = e.enumtypid
+JOIN pg_namespace n ON t.typnamespace = n.oid
+WHERE n.nspname = 'workflow'
+GROUP BY n.nspname, t.typname;" || true
+
+echo
+echo "==> Falling back to migrate-only (KH UI works, no workflow execution)."
 read -rp "Proceed with migrate-only fallback? [y/N] " yn
-case "$yn" in
-    [yY]*) ;;
-    *) echo "Aborted."; exit 1 ;;
-esac
+case "$yn" in [yY]*) ;; *) echo "Aborted."; exit 1 ;; esac
 
 run_psql -c "DROP SCHEMA IF EXISTS workflow CASCADE;"
-docker compose --profile init run --rm keeperhub-migrate sh -c "pnpm db:migrate && pnpm db:seed"
-docker compose restart keeperhub
-sleep 3
-docker compose ps keeperhub
+run_migrate sh -c "pnpm db:migrate && pnpm db:seed"
+docker compose up -d --force-recreate keeperhub
 echo
-echo "==> Migrate-only path done. KH UI should be reachable; workflow runtime is offline."
+echo "==> Migrate-only path done. KH UI reachable; workflows won't execute."
