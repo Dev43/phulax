@@ -1,0 +1,277 @@
+{
+  "version": 1,
+  "exportedAt": "2026-05-03T03:32:19.776Z",
+  "workflow": {
+    "name": "Phulax Guardian — Per-Block Detection",
+    "description": "KeeperHub owns the loop. Every Galileo block: query pool Withdraw events → call our detector for tier-1/2/3 (http://localhost:8787, point this at wherever the agent service listens) → call inference for the classifier (https://phulax-inference.fly.dev — this step is the slot where 0G-served sealed inference plugs in once it serves our LoRA) → aggregate → conditional withdraw. PhulaxAccount.withdraw signed by the org wallet (the on-chain `agent` role); contract hard-locks recipient = owner. Receipt streamId is REPLACE_WITH_RECEIPT_STREAM_ID — provision via 0g-storage/log-append once before first run."
+  },
+  "nodes": [
+    {
+      "id": "trigger-1",
+      "data": {
+        "type": "trigger",
+        "label": "Block",
+        "config": {
+          "network": "16602",
+          "triggerType": "Manual",
+          "blockInterval": "1"
+        },
+        "status": "idle"
+      },
+      "type": "trigger",
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "id": "action-query",
+      "data": {
+        "type": "action",
+        "label": "Query Pool Withdraws",
+        "config": {
+          "abi": "[{\"type\":\"event\",\"name\":\"Withdraw\",\"anonymous\":false,\"inputs\":[{\"name\":\"reserve\",\"type\":\"address\",\"indexed\":true},{\"name\":\"user\",\"type\":\"address\",\"indexed\":true},{\"name\":\"to\",\"type\":\"address\",\"indexed\":true},{\"name\":\"amount\",\"type\":\"uint256\",\"indexed\":false}]}]",
+          "network": "16602",
+          "toBlock": "{{@trigger-1:Block.blockNumber}}",
+          "eventName": "Withdraw",
+          "fromBlock": "",
+          "actionType": "web3/query-events",
+          "blockCount": "6500",
+          "contractAddress": "0xb1DE7278b81e1Fd40027bDac751117AE960d8747"
+        },
+        "status": "idle"
+      },
+      "type": "action",
+      "position": {
+        "x": 240,
+        "y": 0
+      }
+    },
+    {
+      "id": "action-cond-has-txs",
+      "data": {
+        "type": "action",
+        "label": "Has matching events?",
+        "config": {
+          "condition": "{{@action-query:Query Pool Withdraws.eventCount}} > 0",
+          "actionType": "Condition",
+          "conditionConfig": {
+            "group": {
+              "id": "Gop_rqc9ACooYyghoL8cG",
+              "logic": "AND",
+              "rules": [
+                {
+                  "id": "Lj3qpXKlRwBKrHixj301N",
+                  "operator": ">",
+                  "leftOperand": "{{@action-query:Query Pool Withdraws.eventCount}}",
+                  "rightOperand": "0"
+                }
+              ]
+            }
+          }
+        },
+        "status": "idle"
+      },
+      "type": "action",
+      "position": {
+        "x": 480,
+        "y": 0
+      }
+    },
+    {
+      "id": "action-detect",
+      "data": {
+        "type": "action",
+        "label": "Detect (tier 1/2/3)",
+        "config": {
+          "endpoint": "http://agent:8787/detect-features",
+          "httpBody": "{\"account\":\"0xA70060465c1cD280E72366082fE20C7618C18a66\",\"adapter\":\"0x0c39fF914e41DA07B815937ee70772ba21A5C760\",\"events\":{{@action-query:Query Pool Withdraws.events}}}",
+          "actionType": "HTTP Request",
+          "httpMethod": "POST",
+          "httpHeaders": "{\"content-type\":\"application/json\"}"
+        },
+        "status": "idle"
+      },
+      "type": "action",
+      "position": {
+        "x": 720,
+        "y": 0
+      }
+    },
+    {
+      "id": "action-cond-has-candidate",
+      "data": {
+        "type": "action",
+        "label": "Has candidate?",
+        "config": {
+          "condition": "{{@action-detect:Detect (tier 1/2/3).data.hasCandidate}} == true",
+          "actionType": "Condition"
+        },
+        "status": "idle"
+      },
+      "type": "action",
+      "position": {
+        "x": 960,
+        "y": 0
+      }
+    },
+    {
+      "id": "action-classify",
+      "data": {
+        "type": "action",
+        "label": "Classify (tier 4 — 0G compute slot)",
+        "config": {
+          "endpoint": "http://inference:8000/classify",
+          "httpBody": "{{@action-detect:Detect (tier 1/2/3).data.candidate.classifierInput}}",
+          "actionType": "HTTP Request",
+          "httpMethod": "POST",
+          "httpHeaders": "{\"content-type\":\"application/json\"}"
+        },
+        "status": "idle"
+      },
+      "type": "action",
+      "position": {
+        "x": 1200,
+        "y": 0
+      }
+    },
+    {
+      "id": "action-decide",
+      "data": {
+        "type": "action",
+        "label": "Decide (aggregate)",
+        "config": {
+          "endpoint": "http://agent:8787/decide",
+          "httpBody": "{\"account\":\"0xA70060465c1cD280E72366082fE20C7618C18a66\",\"adapter\":\"0x0c39fF914e41DA07B815937ee70772ba21A5C760\",\"txHash\":\"{{@action-detect:Detect (tier 1/2/3).data.candidate.txHash}}\",\"ruleScore\":{{@action-detect:Detect (tier 1/2/3).data.candidate.ruleScore}},\"classifier\":{{@action-classify:Classify (tier 4 — 0G compute slot).data}}}",
+          "actionType": "HTTP Request",
+          "httpMethod": "POST",
+          "httpHeaders": "{\"content-type\":\"application/json\"}"
+        },
+        "status": "idle"
+      },
+      "type": "action",
+      "position": {
+        "x": 1440,
+        "y": 0
+      }
+    },
+    {
+      "id": "action-cond-fire",
+      "data": {
+        "type": "action",
+        "label": "Fire?",
+        "config": {
+          "condition": "{{@action-decide:Decide (aggregate).data.fire}} == true",
+          "actionType": "Condition"
+        },
+        "status": "idle"
+      },
+      "type": "action",
+      "position": {
+        "x": 1680,
+        "y": 0
+      }
+    },
+    {
+      "id": "action-withdraw",
+      "data": {
+        "type": "action",
+        "label": "PhulaxAccount.withdraw",
+        "config": {
+          "abi": "[{\"type\":\"function\",\"name\":\"withdraw\",\"stateMutability\":\"nonpayable\",\"inputs\":[{\"name\":\"adapter\",\"type\":\"address\",\"internalType\":\"address\"}],\"outputs\":[{\"name\":\"\",\"type\":\"uint256\",\"internalType\":\"uint256\"}]}]",
+          "network": "16602",
+          "actionType": "web3/write-contract",
+          "abiFunction": "withdraw",
+          "functionArgs": "[\"0x0c39fF914e41DA07B815937ee70772ba21A5C760\"]",
+          "contractAddress": "0xA70060465c1cD280E72366082fE20C7618C18a66",
+          "priorityFeeGwei": "2"
+        },
+        "status": "idle"
+      },
+      "type": "action",
+      "position": {
+        "x": 1920,
+        "y": 0
+      }
+    },
+    {
+      "id": "action-receipt",
+      "data": {
+        "type": "action",
+        "label": "0G Storage receipt",
+        "config": {
+          "tag": "phulax.withdraw",
+          "payload": "{\"event\":\"withdraw\",\"blockNumber\":\"{{@trigger-1:Block.blockNumber}}\",\"sourceTxHash\":\"{{@action-detect:Detect (tier 1/2/3).data.candidate.txHash}}\",\"score\":{{@action-decide:Decide (aggregate).data.score.value}},\"reason\":\"{{@action-decide:Decide (aggregate).data.reason}}\",\"withdrawTxHash\":\"{{@action-withdraw:PhulaxAccount.withdraw.transactionHash}}\",\"chainId\":16602}",
+          "streamId": "REPLACE_WITH_RECEIPT_STREAM_ID",
+          "actionType": "0g-storage/log-append"
+        },
+        "status": "idle"
+      },
+      "type": "action",
+      "position": {
+        "x": 2160,
+        "y": 0
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-1",
+      "type": "animated",
+      "source": "trigger-1",
+      "target": "action-query"
+    },
+    {
+      "id": "e-2",
+      "type": "animated",
+      "source": "action-query",
+      "target": "action-cond-has-txs"
+    },
+    {
+      "id": "e-3",
+      "type": "animated",
+      "source": "action-cond-has-txs",
+      "target": "action-detect",
+      "sourceHandle": "true"
+    },
+    {
+      "id": "e-4",
+      "type": "animated",
+      "source": "action-detect",
+      "target": "action-cond-has-candidate"
+    },
+    {
+      "id": "e-5",
+      "type": "animated",
+      "source": "action-cond-has-candidate",
+      "target": "action-classify",
+      "sourceHandle": "true"
+    },
+    {
+      "id": "e-6",
+      "type": "animated",
+      "source": "action-classify",
+      "target": "action-decide"
+    },
+    {
+      "id": "e-7",
+      "type": "animated",
+      "source": "action-decide",
+      "target": "action-cond-fire"
+    },
+    {
+      "id": "e-8",
+      "type": "animated",
+      "source": "action-cond-fire",
+      "target": "action-withdraw",
+      "sourceHandle": "true"
+    },
+    {
+      "id": "e-9",
+      "type": "animated",
+      "source": "action-withdraw",
+      "target": "action-receipt"
+    }
+  ],
+  "integrationBindings": []
+}

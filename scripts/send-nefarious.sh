@@ -47,8 +47,12 @@ EOA="$(cast wallet address --private-key "$PRIVATE_KEY")"
 send_async_and_wait() {
   local label="$1"; shift
   local hash
+  # On Galileo the base fee is ~0, so cast's auto-computed maxFeePerGas
+  # (= 2*baseFee + priority) lands below the priority fee → "max priority
+  # fee per gas higher than max fee per gas". Pin maxFeePerGas explicitly
+  # via --gas-price so it's always >= --priority-gas-price.
   hash="$(cast send --async --rpc-url "$RPC" --private-key "$PRIVATE_KEY" \
-    --priority-gas-price "$TIP" "$@")"
+    --gas-price 3gwei --priority-gas-price "$TIP" "$@")"
   echo "  tx: $hash"
   for _ in $(seq 1 30); do
     local status
