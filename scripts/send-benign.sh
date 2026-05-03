@@ -99,4 +99,5 @@ send_async_and_wait "withdraw/benign" \
 
 echo
 echo "Done. Watch the workflow run in KH; expected outcome: no fire."
-echo "  tail -f /tmp/phulax-runtime/{block-dispatcher,executor}.log"
+echo "  ssh root@\$PHULAX_HOST 'cd /opt/phulax && docker compose logs -f keeperhub | grep -iE \"workflow|detect|classify|decide\"'"
+echo "  https://\$PHULAX_HOST/  →  Workflows → Phulax Guardian → most recent run"

@@ -108,4 +108,5 @@ send_async_and_wait "setAssetPrice/restore" \
 
 echo
 echo "Done. Watch the workflow run in KH; expected outcome: FIRE."
-echo "  tail -f /tmp/phulax-runtime/{block-dispatcher,executor}.log"
+echo "  ssh root@\$PHULAX_HOST 'cd /opt/phulax && docker compose logs -f keeperhub | grep -iE \"workflow|detect|classify|decide|withdraw\"'"
+echo "  https://\$PHULAX_HOST/  →  Workflows → Phulax Guardian → most recent run"
