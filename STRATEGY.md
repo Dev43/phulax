@@ -1,7 +1,7 @@
 # Phulax — Hackathon Strategy
 
 **Project codename:** Phulax (Greek φύλαξ, "guardian")
-**One-liner:** An autonomous on-chain guardian agent that detects DeFi exploits in real time and pulls your funds out before the attacker drains the pool. Sleep while you yield.
+**One-liner:** An autonomous on-chain guardian agent that detects DeFi exploits in real time and pulls your funds out before the attacker drains the pool. Protect. Detect. Withdraw.
 
 ---
 

@@ -31,7 +31,7 @@ import {
 import { shortAddr } from "@/lib/utils";
 
 export const metadata = {
-  title: "Phulax — Sleep while you yield",
+  title: "Phulax — Protect. Detect. Withdraw.",
   description:
     "An autonomous on-chain guardian agent that detects DeFi exploits in real time and pulls your funds out before the attacker drains the pool.",
 };
@@ -161,11 +161,11 @@ function Hero() {
 
       <h1 className="mx-auto mt-7 max-w-4xl text-center text-5xl font-semibold leading-[1.05] tracking-tight md:text-7xl">
         <span className="bg-gradient-to-br from-foreground via-foreground to-foreground/60 bg-clip-text text-transparent">
-          Sleep while you
+          Protect. Detect.
         </span>{" "}
         <span className="relative inline-block">
           <span className="bg-gradient-to-br from-primary via-primary to-accent bg-clip-text text-transparent">
-            yield.
+            Withdraw.
           </span>
           <span
             className="absolute inset-x-0 -bottom-1 h-px bg-gradient-to-r from-transparent via-primary to-transparent"

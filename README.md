@@ -2,7 +2,7 @@
 
 # Phulax
 
-### *Sleep while you yield.*
+### *Protect. Detect. Withdraw.*
 
 **An autonomous on-chain guardian agent that watches your yield position, detects exploits in real time, and pulls your funds out before the attacker drains the pool.**
 
