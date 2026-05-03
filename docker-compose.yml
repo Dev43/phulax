@@ -154,9 +154,18 @@ services:
     volumes:
       # @workflow/world-local (the filesystem fallback runtime KH uses when
       # workflow-postgres-setup hasn't run) writes per-run JSON to
-      # /app/.workflow-data/runs/. Without this volume the runtime ENOENTs
-      # on every workflow execution and the dashboard shows stuck runs.
+      # /app/.workflow-data/runs/. Named volume so runs persist across
+      # container restarts. The entrypoint below chowns the mount to the
+      # nextjs user (uid 1001) before starting the server, since named
+      # volumes default to root ownership.
       - keeperhub_workflow_data:/app/.workflow-data
+    user: "0:0"
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        mkdir -p /app/.workflow-data/runs
+        chown -R 1001:1001 /app/.workflow-data
+        exec su -s /bin/sh nextjs -c 'node server.js'
     depends_on:
       db:
         condition: service_healthy
