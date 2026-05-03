@@ -1,0 +1,83 @@
+{
+  "schema": "phulax-inft-v1",
+  "description": "Reference Phulax Guardian iNFT minted per tasks/todo.md §14.B9. ERC-7857-shaped (minimal ERC-721 with policy/adapter/classifier metadata schema). Token URI points at the ml/artifacts.json publish-log entry — anyone can fetch and reconstruct the classifier provenance from it.",
+  "network": {
+    "chainId": 16602,
+    "chainName": "0G Galileo testnet",
+    "rpcUrl": "https://evmrpc-testnet.0g.ai",
+    "explorerBaseUrl": "https://chainscan-galileo.0g.ai"
+  },
+  "contract": {
+    "address": "0xe5c3e4b205844EFe2694949d5723aa93B7F91616",
+    "name": "Phulax Guardian",
+    "symbol": "PHULAX",
+    "source": "contracts/src/inft/PhulaxINFT.sol",
+    "explorerUrl": "https://chainscan-galileo.0g.ai/address/0xe5c3e4b205844EFe2694949d5723aa93B7F91616"
+  },
+  "token": {
+    "tokenId": 1,
+    "owner": "0x734da1B3b4F4E0Bd1D5F68A470798CbBAe74ab00",
+    "boundAccount": "0xA70060465c1cD280E72366082fE20C7618C18a66",
+    "tokenURI": "og://0x7070707070707070707070707070707070707070707070707070707070707002/phulax/publish/0x0f11b81a69774f2cc4c657fb6524d05cf28e6996c52f8f68120f154138ae3676",
+    "explorerUrl": "https://chainscan-galileo.0g.ai/token/0xe5c3e4b205844EFe2694949d5723aa93B7F91616?id=1"
+  },
+  "mint": {
+    "script": "contracts/script/MintINFT.s.sol",
+    "broadcast": "contracts/broadcast/MintINFT.s.sol/16602/run-latest.json",
+    "txHash": "0xcaeb04db793926b0e17e2a3006e4227900ec3a6a04c867d6c278fe682de6990a",
+    "blockNumber": 31288938,
+    "blockHash": "0x38533e895bef519411952d90e1db0960d7db04a10d1f98e65599617221ab798c",
+    "blockTimestamp": "2026-05-03T11:35:03+00:00",
+    "gasUsed": 278275,
+    "effectiveGasPrice": "2000000000",
+    "txExplorerUrl": "https://chainscan-galileo.0g.ai/tx/0xcaeb04db793926b0e17e2a3006e4227900ec3a6a04c867d6c278fe682de6990a"
+  },
+  "uriResolution": {
+    "scheme": "og",
+    "streamId": "0x7070707070707070707070707070707070707070707070707070707070707002",
+    "key": "phulax/publish/0x0f11b81a69774f2cc4c657fb6524d05cf28e6996c52f8f68120f154138ae3676",
+    "publishLog": {
+      "rootHash": "0x7c244f87e40a92807304bc4cbbba751d16c33f85cb6998e9f025a428db299196",
+      "txHash": "0xce46334c9c2d38f6c04f3994b02fef8b6c8da9ba675ccff68d5f2e754ae9605a",
+      "entry": {
+        "kind": "model_publish",
+        "model_hash": "0x0f11b81a69774f2cc4c657fb6524d05cf28e6996c52f8f68120f154138ae3676",
+        "template_version": "2.0.0",
+        "dataset_sha256": "0x2609420e3cae8024672190c4a290aa43728be6dc46aea7ef9b12fff9ac6fc9cc",
+        "weights_cid": null,
+        "weights_sha256": "0x0f11b81a69774f2cc4c657fb6524d05cf28e6996c52f8f68120f154138ae3676",
+        "adapter_cid": "0x6ed56b235cb7af9469fa6d5ceffba70523bcbbffcf1ca51d8bbedc1d066917c7",
+        "eval_cid": "0x8692a53eac0f3213cf2c80d9367b060ce57062b600af01c7ec29a5c87adc1e34",
+        "provider": "0xA02b95Aa6886b1116C4f334eDe00381511E31A09",
+        "task_id": "f14b9662-62ce-47c7-a564-35df364980f2",
+        "timestamp": "2026-05-02T19:05:36.076064+00:00"
+      }
+    }
+  },
+  "verification": {
+    "method": "cast call",
+    "checks": [
+      {
+        "name": "ownerOf",
+        "command": "cast call 0xe5c3e4b205844EFe2694949d5723aa93B7F91616 \"ownerOf(uint256)(address)\" 1 --rpc-url https://evmrpc-testnet.0g.ai",
+        "expected": "0x734da1B3b4F4E0Bd1D5F68A470798CbBAe74ab00"
+      },
+      {
+        "name": "tokenURI",
+        "command": "cast call 0xe5c3e4b205844EFe2694949d5723aa93B7F91616 \"tokenURI(uint256)(string)\" 1 --rpc-url https://evmrpc-testnet.0g.ai",
+        "expected": "og://0x7070707070707070707070707070707070707070707070707070707070707002/phulax/publish/0x0f11b81a69774f2cc4c657fb6524d05cf28e6996c52f8f68120f154138ae3676"
+      },
+      {
+        "name": "boundAccount",
+        "command": "cast call 0xe5c3e4b205844EFe2694949d5723aa93B7F91616 \"boundAccount(uint256)(address)\" 1 --rpc-url https://evmrpc-testnet.0g.ai",
+        "expected": "0xA70060465c1cD280E72366082fE20C7618C18a66"
+      }
+    ],
+    "verifiedAt": "2026-05-03T11:35:03+00:00"
+  },
+  "notes": [
+    "Mint signature is mint(to, account, uri) — 3-arity, not the 2-arity shape implied by the §14.B9 description. The token is bound to the on-chain PhulaxAccount per PhulaxINFT.sol NatSpec.",
+    "Token URI points at the publish-log entry rather than a separate NFT-metadata blob: tighter verifiability, and Hub.policy[account] already holds policy + boundAccount already holds adapter binding, so collapsing those into the URI would duplicate state.",
+    "Broadcast used --legacy --gas-price 2000000000, NOT --priority-gas-price 2gwei. The 1559 path errors `priority > maxFee` on cheap (≤350k gas) scripts because forge auto-estimates a sub-gwei base fee that the 2 gwei tip overshoots. See tasks/todo.md §15."
+  ]
+}
