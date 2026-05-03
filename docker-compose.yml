@@ -196,6 +196,38 @@ services:
         condition: service_healthy
     networks: [phulax]
 
+  # Workflow executor — consumes SQS messages produced by block-dispatcher
+  # (and other dispatchers later), inserts a row into `workflow_executions`
+  # so the KH UI sees the run, then dispatches the actual workflow execution
+  # (in-process via the runtime's pg-boss-equivalent).
+  # Without this service, the dispatcher's SQS messages pile up unconsumed
+  # and the UI's run history stays empty even though the runtime IS firing.
+  executor:
+    build:
+      context: ./keeperhub
+      dockerfile: Dockerfile
+      target: executor
+    image: phulax-executor:latest
+    pull_policy: never
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      <<: [*env_db_connection, *env_aws, *env_sqs, *env_kh_service_keys]
+      NODE_ENV: production
+      KEEPERHUB_API_URL: http://keeperhub:3000
+      KEEPERHUB_API_KEY: "${SCHEDULER_SERVICE_API_KEY:-local-scheduler-key}"
+      INTEGRATION_ENCRYPTION_KEY: "${INTEGRATION_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}"
+      HEALTH_PORT: "3080"
+    depends_on:
+      db:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+      keeperhub:
+        condition: service_started
+    networks: [phulax]
+
   # Block dispatcher — watches Galileo (chain id 16602) over WSS and posts a
   # workflow-execute message to SQS for every block. Without this, KH's Block
   # trigger never auto-fires and workflows only run via manual UI clicks.
