@@ -17,6 +17,7 @@ import {
   defaultPolicy,
   type RiskPolicy,
 } from "./risk/aggregator.js";
+import { buildClassifierFeatures, type ClassifierInput } from "./detection/features.js";
 import { appendIncident, listIncidents, appendFeedback } from "./og/log.js";
 import { bus, scoreToSignals, type StreamEvent } from "./bus.js";
 
@@ -65,20 +66,6 @@ interface DetectFeaturesBody {
   adapter: Address;
   txs?: QueryTx[];
   events?: QueryEvent[];
-}
-
-interface ClassifierFeatures {
-  selector: Hex;
-  function_name: string | null;
-  args: unknown[];
-  value: string;
-}
-
-// inference/server.py expects `{ features: ... }` (Pydantic model
-// ClassifyRequest.features: Any). The wrapper is what differs from the
-// raw blob — keep them as separate types so the wire shape is explicit.
-interface ClassifierInput {
-  features: ClassifierFeatures;
 }
 
 interface Candidate {
@@ -223,14 +210,13 @@ export async function buildServer() {
       adapter,
       ruleScore: best.score,
       classifierInput: {
-        features: {
+        features: buildClassifierFeatures({
           selector: ctx.selector,
-          function_name: ctx.functionName,
-          args: ctx.args.map((a) =>
-            typeof a === "bigint" ? a.toString() : a,
-          ),
-          value: ctx.value.toString(),
-        },
+          functionName: ctx.functionName,
+          args: ctx.args,
+          fromIsAdmin: ctx.invariants.fromIsAdmin,
+          invariants: ctx.invariants,
+        }),
       },
     };
     // Pre-classifier rolling score so the dashboard's gauge moves before

@@ -14,6 +14,7 @@ import {
   SELECTOR_WITHDRAW,
   SELECTOR_WITHDRAW_RESERVES,
 } from "./invariants.js";
+import { buildClassifierFeatures } from "./features.js";
 import type {
   ClassifierReceipt,
   InvariantSnapshot,
@@ -176,7 +177,12 @@ export async function hydrate(
 
   let classifier: ClassifierReceipt | null = null;
   if (!opts.skipClassifier && !willShortCircuitTier1) {
-    classifier = await callClassifier({ raw, args, functionName }).catch(() => null);
+    classifier = await callClassifier({
+      raw,
+      args,
+      functionName,
+      invariants,
+    }).catch(() => null);
   }
 
   return {
@@ -234,25 +240,28 @@ async function callClassifier(input: {
   raw: RawTx;
   args: readonly unknown[];
   functionName: string | null;
+  invariants: InvariantSnapshot;
 }): Promise<ClassifierReceipt | null> {
   const url = config().classifierUrl;
   // inference/server.py expects `{ features: <blob> }` — Pydantic model
-  // ClassifyRequest.features: Any. The wrapper is mandatory; the inner
-  // blob shape is what gets canonical-json'd into input_hash on both
-  // sides per the CLAUDE.md canonicaliser invariant.
+  // ClassifyRequest.features: Any. The inner blob must match the schema
+  // ml/prompt/template.py was fine-tuned on (caller/fn/decoded_args/
+  // balance_delta), or _row_for_template coerces it to neutral defaults
+  // and the model returns SAFE.
   const body = {
-    features: {
-      selector: input.raw.input.slice(0, 10),
-      function_name: input.functionName,
-      args: input.args.map((a) => (typeof a === "bigint" ? a.toString() : a)),
-      value: input.raw.value.toString(),
-    },
+    features: buildClassifierFeatures({
+      selector: input.raw.input.slice(0, 10) as Hex,
+      functionName: input.functionName,
+      args: input.args,
+      fromIsAdmin: input.invariants.fromIsAdmin,
+      invariants: input.invariants,
+    }),
   };
   const res = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(800),
+    signal: AbortSignal.timeout(5_000),
   });
   if (!res.ok) return null;
   const j = (await res.json()) as ClassifierReceipt;
