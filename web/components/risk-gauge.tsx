@@ -1,7 +1,7 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { Signal } from "@/lib/mock";
+import type { Signal } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const THRESHOLD = 0.7;

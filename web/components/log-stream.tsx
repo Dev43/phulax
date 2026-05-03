@@ -12,7 +12,13 @@ const TONE = {
   fire: "text-danger font-semibold",
 } as const;
 
-export function LogStream({ lines }: { lines: LogLine[] }) {
+export function LogStream({
+  lines,
+  connected,
+}: {
+  lines: LogLine[];
+  connected: boolean;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
@@ -22,8 +28,13 @@ export function LogStream({ lines }: { lines: LogLine[] }) {
     <Card className="flex flex-col">
       <CardHeader>
         <CardTitle>agent stream · /stream</CardTitle>
-        <span className="text-xs font-mono text-primary">
-          ● connected (mock)
+        <span
+          className={cn(
+            "text-xs font-mono",
+            connected ? "text-primary" : "text-amber-500",
+          )}
+        >
+          {connected ? "● live" : "○ disconnected"}
         </span>
       </CardHeader>
       <CardContent className="flex-1 p-0">

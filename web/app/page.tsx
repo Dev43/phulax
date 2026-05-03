@@ -7,12 +7,14 @@ import { PositionCard } from "@/components/position-card";
 import { RiskGauge } from "@/components/risk-gauge";
 import { IncidentTimeline } from "@/components/incident-timeline";
 import { LogStream, type LogLine } from "@/components/log-stream";
-import { FeedbackToggle } from "@/components/feedback-toggle";
-import {
-  MOCK_INCIDENTS,
-  type Incident,
-  type Signal,
-} from "@/lib/mock";
+import { AgentStatus } from "@/components/agent-status";
+import { AGENT_BASE_URL, PHULAX_ACCOUNT } from "@/lib/contracts";
+import type {
+  AgentEvent,
+  Incident,
+  IncidentEntryWire,
+  Signal,
+} from "@/lib/types";
 
 const MAX_LOGS = 250;
 const INITIAL_SIGNALS: Signal[] = [
@@ -22,34 +24,12 @@ const INITIAL_SIGNALS: Signal[] = [
   { name: "classifier", weight: 0.0, detail: "—" },
 ];
 
-// Default to the same-origin `/agent` mount so the dockerized deploy (Caddy
-// reverse-proxies /agent → agent:8787) works without a build arg. Local
-// dev overrides this via web/.env.local → http://localhost:8787.
-const AGENT_BASE_URL =
-  process.env.NEXT_PUBLIC_AGENT_BASE_URL ?? "/agent";
-
-// Mirrors agent/src/bus.ts StreamEvent. Kept hand-rolled (no shared
-// package) because the payload is small and the agent's TS lives in a
-// different workspace.
-type AgentEvent =
-  | { kind: "log"; ts: number; level: "info" | "warn" | "fire"; msg: string }
-  | { kind: "score"; ts: number; score: number; signals: Signal[] }
-  | {
-      kind: "incident";
-      ts: number;
-      txHash: string;
-      account: string;
-      score: number;
-      outcome: "fired" | "monitored" | "fp";
-      reason: string;
-    };
-
 export default function Home() {
   const [logs, setLogs] = useState<LogLine[]>([]);
   const [score, setScore] = useState(0.0);
   const [signals, setSignals] = useState<Signal[]>(INITIAL_SIGNALS);
   const [fired, setFired] = useState(false);
-  const [incidents, setIncidents] = useState<Incident[]>(MOCK_INCIDENTS);
+  const [incidents, setIncidents] = useState<Incident[]>([]);
   const [streamConnected, setStreamConnected] = useState(false);
 
   const pushLogs = useCallback((next: LogLine[]) => {
@@ -61,12 +41,38 @@ export default function Home() {
 
   const onUserLog = useCallback(
     (msg: string) => pushLogs([{ ts: Date.now(), level: "info", msg }]),
-    [pushLogs]
+    [pushLogs],
   );
 
-  // Live SSE feed from agent/server.ts:GET /stream. Auto-reconnect is
-  // built into EventSource; no manual retry loop. Falls back to the
-  // mock-driven view if the agent is unreachable.
+  // Initial backfill from 0G Storage Log via the agent service. The SSE
+  // stream below only delivers new incidents; this gives history on cold
+  // load. Failures are silent — empty timeline is acceptable.
+  useEffect(() => {
+    const url = `${AGENT_BASE_URL}/incidents/${PHULAX_ACCOUNT}`;
+    let cancelled = false;
+    fetch(url)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data: IncidentEntryWire[] | { entries?: IncidentEntryWire[] }) => {
+        if (cancelled) return;
+        const entries = Array.isArray(data)
+          ? data
+          : Array.isArray(data?.entries)
+            ? data.entries
+            : [];
+        setIncidents(
+          entries
+            .map(toIncident)
+            .sort((a, b) => b.ts - a.ts),
+        );
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Live SSE feed from agent/server.ts:GET /stream. EventSource auto-
+  // reconnects on its own; we just surface the open/error transitions.
   useEffect(() => {
     const url = `${AGENT_BASE_URL}/stream`;
     const es = new EventSource(url);
@@ -74,16 +80,11 @@ export default function Home() {
     es.onopen = () => {
       setStreamConnected(true);
       pushLogs([
-        {
-          ts: Date.now(),
-          level: "info",
-          msg: `[stream] connected to ${url}`,
-        },
+        { ts: Date.now(), level: "info", msg: `[stream] connected ${url}` },
       ]);
     };
 
     es.onerror = () => {
-      // Browser auto-reconnects; just surface the state.
       setStreamConnected(false);
     };
 
@@ -105,11 +106,12 @@ export default function Home() {
         case "incident":
           setIncidents((prev) => [
             {
-              id: `i_${evt.ts}`,
+              id: `i_${evt.ts}_${evt.txHash.slice(2, 10)}`,
               ts: evt.ts,
               score: evt.score,
               outcome: evt.outcome,
               txHash: `${evt.txHash.slice(0, 6)}…${evt.txHash.slice(-4)}`,
+              txHashFull: evt.txHash,
               reason: evt.reason,
             },
             ...prev,
@@ -124,6 +126,12 @@ export default function Home() {
 
     return () => es.close();
   }, [pushLogs]);
+
+  const markFp = useCallback((id: string) => {
+    setIncidents((prev) =>
+      prev.map((i) => (i.id === id ? { ...i, outcome: "fp" } : i)),
+    );
+  }, []);
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -148,12 +156,16 @@ export default function Home() {
               <PositionCard onLog={onUserLog} />
               <RiskGauge score={score} signals={signals} fired={fired} />
             </div>
-            <LogStream lines={logs} />
+            <LogStream lines={logs} connected={streamConnected} />
           </div>
 
           <div className="space-y-6">
-            <FeedbackToggle onLog={onUserLog} />
-            <IncidentTimeline incidents={incidents} />
+            <AgentStatus />
+            <IncidentTimeline
+              incidents={incidents}
+              onLog={onUserLog}
+              onMarkFp={markFp}
+            />
           </div>
         </div>
 
@@ -166,10 +178,34 @@ export default function Home() {
           >
             {streamConnected ? "● live" : "○ disconnected"}
           </span>{" "}
-          · agent <code>{AGENT_BASE_URL}</code> · simulate button is a local
-          UI mock, not chain activity
+          · agent <code>{AGENT_BASE_URL}</code> · all txs broadcast to 0G
+          Galileo (chain 16602)
         </footer>
       </main>
     </div>
   );
+}
+
+// Map agent/og/log.ts IncidentEntry → web Incident. The wire shape carries
+// the structured Score; we collapse it to the highest-delta signal as the
+// human-readable reason and keep the rest in the log stream.
+function toIncident(e: IncidentEntryWire): Incident {
+  const top = e.score?.signals
+    ?.slice()
+    .sort((a, b) => b.delta - a.delta)[0];
+  const reason = top?.detail ?? `score ${e.score?.value?.toFixed(2) ?? "—"}`;
+  const outcome: Incident["outcome"] = e.feedback?.falsePositive
+    ? "fp"
+    : e.outcome === "fired"
+      ? "fired"
+      : "monitored";
+  return {
+    id: `i_${e.ts}_${e.txHash.slice(2, 10)}`,
+    ts: e.ts,
+    score: e.score?.value ?? 0,
+    outcome,
+    txHash: `${e.txHash.slice(0, 6)}…${e.txHash.slice(-4)}`,
+    txHashFull: e.txHash,
+    reason,
+  };
 }
