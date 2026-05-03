@@ -19,7 +19,10 @@ const nextConfig = {
   // Next defaults to the workspace dir (web/) and the standalone output
   // ships symlinks pointing at a `.pnpm` store that doesn't exist in the
   // image — `require('next')` then fails with MODULE_NOT_FOUND at startup.
-  outputFileTracingRoot: path.join(here, ".."),
+  // Next 14 keeps this knob under `experimental`; Next 15+ promotes it to top-level.
+  experimental: {
+    outputFileTracingRoot: path.join(here, ".."),
+  },
 };
 
 export default nextConfig;
