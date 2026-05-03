@@ -25,7 +25,7 @@ x-env-db: &env_db
   POSTGRES_DB: ${POSTGRES_DB:-keeperhub}
 
 x-env-db-connection: &env_db_connection
-  DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-keeperhub}
+  DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-keeperhub}?sslmode=disable
 
 x-env-aws: &env_aws
   AWS_REGION: us-east-1
@@ -153,7 +153,11 @@ services:
       # (filesystem-based; runs sit pending without an executor, but the
       # KH UI still boots cleanly).
       WORKFLOW_TARGET_WORLD: "${WORKFLOW_TARGET_WORLD:-}"
-      WORKFLOW_POSTGRES_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-keeperhub}
+      # `?sslmode=disable` because the local postgres:16-alpine container
+      # has no SSL configured. KH's instrumentation.ts forces explicit SSL
+      # mode via ensureExplicitSslMode() — without the disable hint it tries
+      # SSL and fails with "The server does not support SSL connections".
+      WORKFLOW_POSTGRES_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-keeperhub}?sslmode=disable
       # Integration encryption key — used when the executor reads
       # workflow integration secrets out of the DB.
       INTEGRATION_ENCRYPTION_KEY: "${INTEGRATION_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}"
