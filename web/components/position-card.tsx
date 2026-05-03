@@ -19,6 +19,8 @@ import {
   MIN_PRIORITY_FEE,
   PHULAX_ACCOUNT,
 } from "@/lib/contracts";
+import { OG_CHAIN_ID } from "@/lib/wagmi";
+import { useEnsureOgChain } from "@/lib/chain";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ArrowDownToLine, ArrowUpFromLine, Coins } from "lucide-react";
@@ -29,8 +31,9 @@ type Busy = "mint" | "deposit" | "withdraw" | null;
 
 export function PositionCard({ onLog }: { onLog: (msg: string) => void }) {
   const { address, isConnected } = useAccount();
-  const publicClient = usePublicClient();
+  const publicClient = usePublicClient({ chainId: OG_CHAIN_ID });
   const { writeContractAsync } = useWriteContract();
+  const { ensure: ensureOgChain } = useEnsureOgChain();
   const [busy, setBusy] = useState<Busy>(null);
 
   // Adapter holds the user's pool position — pool.balanceOf(asset, user) is
@@ -40,6 +43,7 @@ export function PositionCard({ onLog }: { onLog: (msg: string) => void }) {
     abi: fakePoolAdapterAbi,
     functionName: "balanceOf",
     args: [PHULAX_ACCOUNT],
+    chainId: OG_CHAIN_ID,
     query: { refetchInterval: 12_000 },
   });
 
@@ -49,6 +53,7 @@ export function PositionCard({ onLog }: { onLog: (msg: string) => void }) {
     abi: demoAssetAbi,
     functionName: "balanceOf",
     args: address ? [address] : undefined,
+    chainId: OG_CHAIN_ID,
     query: { enabled: Boolean(address), refetchInterval: 12_000 },
   });
 
@@ -77,7 +82,9 @@ export function PositionCard({ onLog }: { onLog: (msg: string) => void }) {
     if (!address) return;
     setBusy("mint");
     try {
+      await ensureOgChain();
       const hash = await writeContractAsync({
+        chainId: OG_CHAIN_ID,
         address: DEMO_ASSET,
         abi: demoAssetAbi,
         functionName: "mint",
@@ -91,12 +98,13 @@ export function PositionCard({ onLog }: { onLog: (msg: string) => void }) {
     } finally {
       setBusy(null);
     }
-  }, [address, onLog, refetchWallet, sendTx, writeContractAsync]);
+  }, [address, ensureOgChain, onLog, refetchWallet, sendTx, writeContractAsync]);
 
   const deposit = useCallback(async () => {
     if (!address || !publicClient) return;
     setBusy("deposit");
     try {
+      await ensureOgChain();
       // Approve PhulaxAccount to pull pUSD from owner if allowance is short.
       const allowance = (await publicClient.readContract({
         address: DEMO_ASSET,
@@ -107,6 +115,7 @@ export function PositionCard({ onLog }: { onLog: (msg: string) => void }) {
 
       if (allowance < DEPOSIT_AMOUNT) {
         const approveHash = await writeContractAsync({
+          chainId: OG_CHAIN_ID,
           address: DEMO_ASSET,
           abi: demoAssetAbi,
           functionName: "approve",
@@ -119,6 +128,7 @@ export function PositionCard({ onLog }: { onLog: (msg: string) => void }) {
       }
 
       const depositHash = await writeContractAsync({
+        chainId: OG_CHAIN_ID,
         address: PHULAX_ACCOUNT,
         abi: phulaxAccountAbi,
         functionName: "deposit",
@@ -134,6 +144,7 @@ export function PositionCard({ onLog }: { onLog: (msg: string) => void }) {
     }
   }, [
     address,
+    ensureOgChain,
     onLog,
     publicClient,
     refetchPosition,
@@ -146,7 +157,9 @@ export function PositionCard({ onLog }: { onLog: (msg: string) => void }) {
     if (!address) return;
     setBusy("withdraw");
     try {
+      await ensureOgChain();
       const hash = await writeContractAsync({
+        chainId: OG_CHAIN_ID,
         address: PHULAX_ACCOUNT,
         abi: phulaxAccountAbi,
         functionName: "withdraw",
@@ -162,6 +175,7 @@ export function PositionCard({ onLog }: { onLog: (msg: string) => void }) {
     }
   }, [
     address,
+    ensureOgChain,
     onLog,
     refetchPosition,
     refetchWallet,

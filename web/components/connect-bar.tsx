@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { shortAddr } from "@/lib/utils";
 import { FAKE_POOL_ADAPTER, PHULAX_ACCOUNT } from "@/lib/contracts";
 import { fakePoolAdapterAbi } from "@/contracts/abis";
+import { OG_CHAIN_ID } from "@/lib/wagmi";
 import { Shield } from "lucide-react";
 
 export function ConnectBar() {
@@ -21,6 +22,7 @@ export function ConnectBar() {
     abi: fakePoolAdapterAbi,
     functionName: "balanceOf",
     args: [PHULAX_ACCOUNT],
+    chainId: OG_CHAIN_ID,
     query: { refetchInterval: 12_000 },
   });
   const position =

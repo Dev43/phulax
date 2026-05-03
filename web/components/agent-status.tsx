@@ -4,6 +4,7 @@ import { formatUnits } from "viem";
 import { useReadContract } from "wagmi";
 import { hubAbi, phulaxAccountAbi } from "@/contracts/abis";
 import { HUB, PHULAX_ACCOUNT } from "@/lib/contracts";
+import { OG_CHAIN_ID } from "@/lib/wagmi";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { shortAddr } from "@/lib/utils";
 import { ShieldCheck } from "lucide-react";
@@ -20,6 +21,7 @@ export function AgentStatus() {
     address: PHULAX_ACCOUNT,
     abi: phulaxAccountAbi,
     functionName: "agent",
+    chainId: OG_CHAIN_ID,
     query: { refetchInterval: 30_000 },
   });
 
@@ -28,6 +30,7 @@ export function AgentStatus() {
     abi: hubAbi,
     functionName: "policy",
     args: [PHULAX_ACCOUNT],
+    chainId: OG_CHAIN_ID,
     query: { refetchInterval: 30_000 },
   });
 

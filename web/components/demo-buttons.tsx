@@ -4,6 +4,8 @@ import { useCallback, useRef, useState } from "react";
 import { type Hex, parseEther } from "viem";
 import { useAccount, usePublicClient, useWriteContract } from "wagmi";
 import { Button } from "@/components/ui/button";
+import { OG_CHAIN_ID } from "@/lib/wagmi";
+import { useEnsureOgChain } from "@/lib/chain";
 import { Copy, Skull, Sparkles, Trash2 } from "lucide-react";
 
 const POOL = (process.env.NEXT_PUBLIC_FAKE_POOL ??
@@ -114,8 +116,9 @@ interface DemoButtonsProps {
 
 export function DemoButtons({ onLog }: DemoButtonsProps) {
   const { address, isConnected } = useAccount();
-  const publicClient = usePublicClient();
+  const publicClient = usePublicClient({ chainId: OG_CHAIN_ID });
   const { writeContractAsync } = useWriteContract();
+  const { ensure: ensureOgChain } = useEnsureOgChain();
   const [running, setRunning] = useState<DemoTxKind | null>(null);
   const [step, setStep] = useState<StepLabel>("");
   const [txs, setTxs] = useState<DemoTx[]>([]);
@@ -134,7 +137,12 @@ export function DemoButtons({ onLog }: DemoButtonsProps) {
     ): Promise<Hex> => {
       setStep(label);
       onLog(`[demo] ${label} — sending`);
+      // Force the wallet onto 0G Galileo before signing — without this
+      // wagmi defaults to the wallet's currently-active chain (often
+      // Ethereum mainnet on a fresh install).
+      await ensureOgChain();
       const hash = await writeContractAsync({
+        chainId: OG_CHAIN_ID,
         address: to,
         abi,
         // biome-ignore lint/suspicious/noExplicitAny: see above
@@ -171,7 +179,7 @@ export function DemoButtons({ onLog }: DemoButtonsProps) {
       }
       return hash;
     },
-    [onLog, publicClient, writeContractAsync],
+    [ensureOgChain, onLog, publicClient, writeContractAsync],
   );
 
   const runBenign = useCallback(async () => {

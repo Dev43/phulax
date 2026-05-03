@@ -8,6 +8,7 @@ import { RiskGauge } from "@/components/risk-gauge";
 import { IncidentTimeline } from "@/components/incident-timeline";
 import { LogStream, type LogLine } from "@/components/log-stream";
 import { AgentStatus } from "@/components/agent-status";
+import { WrongChainBanner } from "@/components/wrong-chain-banner";
 import { AGENT_BASE_URL, PHULAX_ACCOUNT } from "@/lib/contracts";
 import type {
   AgentEvent,
@@ -138,6 +139,8 @@ export default function Home() {
       <ConnectBar />
 
       <main className="mx-auto w-full max-w-7xl flex-1 space-y-6 px-6 py-6">
+        <WrongChainBanner />
+
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-xl font-semibold tracking-tight">
