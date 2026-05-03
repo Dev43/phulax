@@ -32,7 +32,7 @@
     #   htpasswd -nbBC 14 ethglobal '<new-password>'
     # and update both this hash and the Caddyfile in source control.
     basic_auth {
-        ethglobal $2y$14$B6KiACniayqYbf4SxEF1TuZJqljlUX3mvxZj/lxXZ9Tcv1MiN9Qpm
+        ethglobal $2y$14$fiWOXWm3avgqLurb7.c6vOGX6D8uyoV/Kf4Y7g1kFeEkZwyBo5u/C
     }
 
     # Phulax web dashboard. basePath=/web is baked into the build, so Caddy
