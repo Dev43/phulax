@@ -216,6 +216,11 @@ services:
       KEEPERHUB_API_URL: http://keeperhub:3000
       KEEPERHUB_API_KEY: "${SCHEDULER_SERVICE_API_KEY:-local-scheduler-key}"
       INTEGRATION_ENCRYPTION_KEY: "${INTEGRATION_ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}"
+      # Always dispatch by calling KH's API endpoint — no Kubernetes Jobs.
+      # The default `isolated` mode tries to spawn a k8s Job per execution
+      # which obviously fails on docker-compose; `process` mode posts to
+      # http://keeperhub:3000/api/workflow/<id>/execute instead.
+      EXECUTION_MODE: process
       HEALTH_PORT: "3080"
     depends_on:
       db:
