@@ -196,6 +196,41 @@ services:
         condition: service_healthy
     networks: [phulax]
 
+  # Block dispatcher — watches Galileo (chain id 16602) over WSS and posts a
+  # workflow-execute message to SQS for every block. Without this, KH's Block
+  # trigger never auto-fires and workflows only run via manual UI clicks.
+  # Reads chains config from the DB (seeded by `db:setup`).
+  block-dispatcher:
+    build:
+      context: ./keeperhub
+      dockerfile: Dockerfile
+      target: block-dispatcher
+    image: phulax-block-dispatcher:latest
+    pull_policy: never
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      <<: [*env_db_connection, *env_aws, *env_sqs, *env_kh_service_keys]
+      NODE_ENV: production
+      KEEPERHUB_API_URL: http://keeperhub:3000
+      # Same shared key the scheduler uses to talk to the KH API.
+      KEEPERHUB_API_KEY: "${SCHEDULER_SERVICE_API_KEY:-local-scheduler-key}"
+      # WSS endpoint for Galileo. The trailing slash matters — `/ws` returns
+      # a 301 that WS clients silently fail on. See tasks/todo.md sharp edges.
+      CHAIN_ZERO_G_GALILEO_PRIMARY_WSS: "wss://evmrpc-testnet.0g.ai/ws/"
+      CHAIN_ZERO_G_GALILEO_PRIMARY_RPC: "https://evmrpc-testnet.0g.ai"
+      RECONCILE_INTERVAL_MS: "30000"
+      HEALTH_PORT: "3080"
+    depends_on:
+      db:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+      keeperhub:
+        condition: service_started
+    networks: [phulax]
+
   web:
     build:
       context: .
