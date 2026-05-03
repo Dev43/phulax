@@ -388,6 +388,7 @@ function normalizeClassifier(c: unknown): ClassifierReceipt | null {
     weightsCid: typeof o["weightsCid"] === "string" ? (o["weightsCid"] as string)
       : typeof o["weights_cid"] === "string" ? (o["weights_cid"] as string)
       : "",
+    signature: ((o["signature"]) as Hex) ?? "0x",
   };
 }
 
