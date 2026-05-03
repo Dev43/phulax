@@ -100,6 +100,27 @@ services:
       start_period: 20s
     networks: [phulax]
 
+  # One-shot migrator using KH's dedicated `migrator` stage (pnpm + tsx +
+  # node_modules + drizzle config). Not started by default; run on demand:
+  #   docker compose --profile init run --rm keeperhub-migrate pnpm db:setup
+  keeperhub-migrate:
+    build:
+      context: ./keeperhub
+      dockerfile: Dockerfile
+      target: migrator
+    image: phulax-keeperhub-migrate:latest
+    pull_policy: never
+    profiles: ["init"]
+    env_file:
+      - .env
+    environment:
+      <<: [*env_db_connection, *env_aws, *env_sqs, *env_kh_service_keys]
+      NODE_ENV: production
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [phulax]
+
   keeperhub:
     build:
       context: ./keeperhub
