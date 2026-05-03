@@ -1,6 +1,5 @@
 "use client";
 
-import { useAccount, useSwitchChain } from "wagmi";
 import { OG_CHAIN_ID } from "@/lib/wagmi";
 import { Button } from "@/components/ui/button";
 import { useEnsureOgChain } from "@/lib/chain";
@@ -10,11 +9,10 @@ import { AlertTriangle } from "lucide-react";
 // "tx going to Ethereum mainnet" foot-guns where Rabby/MetaMask propose a
 // signature on whatever chain they happen to be on.
 export function WrongChainBanner() {
-  const { isConnected } = useAccount();
-  const { onWrongChain, currentChainId, ensure } = useEnsureOgChain();
-  const { isPending } = useSwitchChain();
+  const { onWrongChain, currentChainId, ensure, isPending } =
+    useEnsureOgChain();
 
-  if (!isConnected || !onWrongChain) return null;
+  if (!onWrongChain) return null;
 
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-md border border-warn/40 bg-warn/10 px-4 py-3 text-sm">

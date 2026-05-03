@@ -33,8 +33,7 @@ export function PositionCard({ onLog }: { onLog: (msg: string) => void }) {
   const { address, isConnected } = useAccount();
   const publicClient = usePublicClient({ chainId: OG_CHAIN_ID });
   const { writeContractAsync } = useWriteContract();
-  const { ensure: ensureOgChain, isReady: chainReady, onWrongChain } =
-    useEnsureOgChain();
+  const { ensure: ensureOgChain, isReady: chainReady } = useEnsureOgChain();
   const [busy, setBusy] = useState<Busy>(null);
 
   // Adapter holds the user's pool position — pool.balanceOf(asset, user) is
@@ -180,9 +179,11 @@ export function PositionCard({ onLog }: { onLog: (msg: string) => void }) {
     writeContractAsync,
   ]);
 
-  const disabled = !isConnected || busy !== null || onWrongChain;
+  // Strict-gate writes on `chainReady` (wallet's actual eth_chainId === 16602),
+  // not just `isConnected`. Without this we'd let the user click Mint while
+  // the wallet is on Ethereum, and the tx would land on the wrong chain.
+  const disabled = !isConnected || busy !== null || !chainReady;
   const needsMint = isConnected && wallet < DEPOSIT_AMOUNT;
-  void chainReady; // referenced for clarity; gating uses onWrongChain
 
   return (
     <Card>
@@ -198,7 +199,7 @@ export function PositionCard({ onLog }: { onLog: (msg: string) => void }) {
           <div className="text-xs text-muted-foreground">
             {!isConnected ? (
               "connect a wallet to deposit"
-            ) : onWrongChain ? (
+            ) : !chainReady ? (
               <span className="text-warn">switch to 0G Galileo to act</span>
             ) : (
               <>

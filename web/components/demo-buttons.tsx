@@ -118,7 +118,7 @@ export function DemoButtons({ onLog }: DemoButtonsProps) {
   const { address, isConnected } = useAccount();
   const publicClient = usePublicClient({ chainId: OG_CHAIN_ID });
   const { writeContractAsync } = useWriteContract();
-  const { ensure: ensureOgChain, onWrongChain } = useEnsureOgChain();
+  const { ensure: ensureOgChain, isReady: chainReady } = useEnsureOgChain();
   const [running, setRunning] = useState<DemoTxKind | null>(null);
   const [step, setStep] = useState<StepLabel>("");
   const [txs, setTxs] = useState<DemoTx[]>([]);
@@ -289,7 +289,7 @@ export function DemoButtons({ onLog }: DemoButtonsProps) {
   }, [address, onLog, send]);
 
   const busy = running !== null;
-  const disabled = !isConnected || busy || onWrongChain;
+  const disabled = !isConnected || busy || !chainReady;
   const label =
     running === "benign"
       ? `benign · ${step}`
@@ -333,7 +333,7 @@ export function DemoButtons({ onLog }: DemoButtonsProps) {
             connect wallet to enable
           </span>
         )}
-        {label === null && isConnected && onWrongChain && (
+        {label === null && isConnected && !chainReady && (
           <span className="text-[11px] text-warn">
             switch to 0G Galileo to enable
           </span>
