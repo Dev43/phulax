@@ -5,6 +5,7 @@ import { ConnectBar } from "@/components/connect-bar";
 import { DemoButtons } from "@/components/demo-buttons";
 import { PositionCard } from "@/components/position-card";
 import { RiskGauge } from "@/components/risk-gauge";
+import { RiskAlert } from "@/components/risk-alert";
 import { IncidentTimeline } from "@/components/incident-timeline";
 import { LogStream, type LogLine } from "@/components/log-stream";
 import { AgentStatus } from "@/components/agent-status";
@@ -120,7 +121,9 @@ export default function Home() {
           ]);
           if (evt.outcome === "fired") {
             setFired(true);
-            setTimeout(() => setFired(false), 4000);
+            // Hold the FIRING flash for 12s — long enough for a demo audience
+            // to register it before the gauge falls back to "monitoring".
+            setTimeout(() => setFired(false), 12_000);
           }
           break;
       }
@@ -142,6 +145,12 @@ export default function Home() {
       <main className="mx-auto w-full max-w-7xl flex-1 space-y-6 px-6 py-6">
         <WrongChainBanner />
         <OwnerMismatchBanner />
+        <RiskAlert
+          score={score}
+          signals={signals}
+          fired={fired}
+          incidents={incidents}
+        />
 
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>

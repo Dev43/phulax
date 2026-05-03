@@ -4,7 +4,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { Signal } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-const THRESHOLD = 0.7;
+// Match the agent's RISK_THRESHOLD env (single corroborating signal can't
+// fire alone; oracle deviation + classifier together cross 0.5). If you
+// retune the agent, retune this.
+const THRESHOLD = 0.5;
 
 export function RiskGauge({
   score,
