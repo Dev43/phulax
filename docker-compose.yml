@@ -302,7 +302,11 @@ services:
       RPC_URL: ${RPC_URL:-https://evmrpc-testnet.0g.ai}
       CHAIN_ID: ${CHAIN_ID:-16602}
       POOL_ADDRESS: ${POOL_ADDRESS:-0xb1DE7278b81e1Fd40027bDac751117AE960d8747}
-      RISK_THRESHOLD: ${RISK_THRESHOLD:-0.7}
+      # Lowered from 0.7 → 0.5: tier-2 alone (oracle.deviation, +0.2) won't
+      # fire; classifier alone (≤+0.4) won't fire; but oracle+classifier
+      # together (~0.57) will. That's the corroborating-signals semantics
+      # the strategy calls for and matches our actual delta math.
+      RISK_THRESHOLD: ${RISK_THRESHOLD:-0.5}
       CLASSIFIER_URL: http://inference:8000/classify
       OG_STORAGE_URL: ${OG_STORAGE_URL:-http://localhost:5678}
       OG_STORAGE_AUTH: ${OG_STORAGE_AUTH:-}
