@@ -9,6 +9,16 @@
 # basic_auth covers everything (username: ethglobal). Credential is a bcrypt
 # hash of the chosen demo password — generated with `htpasswd -nbBC 14`.
 
+{
+    # When the host in the site block is an IP literal, OpenSSL clients
+    # (curl, browsers, Go's net/http) do not send a TLS SNI extension —
+    # RFC 6066 forbids IP addresses as SNI hostnames. Without SNI Caddy has
+    # no host to match against and aborts the handshake with
+    # "tlsv1 alert internal error". default_sni tells Caddy what host to
+    # assume when SNI is missing, so the cert for the IP gets picked.
+    default_sni {$PHULAX_HOST:localhost}
+}
+
 {$PHULAX_HOST:localhost} {
     # Use Caddy's own internal CA (self-signed) instead of ACME. ACME / Let's
     # Encrypt cannot issue certificates for raw IP addresses, and the demo
