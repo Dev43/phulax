@@ -7,6 +7,7 @@
     "test": "forge test -vv",
     "fuzz": "forge test --match-test invariant -vv",
     "deploy:zerog": "forge script script/Deploy.s.sol:Deploy --rpc-url zerog_testnet --broadcast --verify --priority-gas-price 2gwei",
+    "mint:inft": "forge script script/MintINFT.s.sol:MintINFT --rpc-url zerog_testnet --broadcast --legacy --gas-price 2000000000",
     "abis": "forge build && node ./scripts/extract-abis.mjs",
     "wagmi": "wagmi generate"
   },
