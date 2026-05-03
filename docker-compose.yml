@@ -251,6 +251,11 @@ services:
       PHULAX_INFERENCE_PHASE: auto
       PHULAX_INFERENCE_HMAC_KEY: ${PHULAX_INFERENCE_HMAC_KEY:?set in .env}
       PHULAX_LOG_LEVEL: INFO
+      # Cap generation tokens. The fine-tune target is a one-line JSON
+      # `{"p_nefarious": 0.X, "tag": "..."}` which fits in ~20 tokens; the
+      # default of 48 spent extra time generating padding/EOS we throw away.
+      # Cuts CPU classify latency roughly in half.
+      PHULAX_INFERENCE_MAX_NEW: "${PHULAX_INFERENCE_MAX_NEW:-20}"
       # PHULAX_MODEL_DIR is set inside the transformers stage of inference/Dockerfile
     networks: [phulax]
 
