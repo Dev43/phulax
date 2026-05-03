@@ -8,6 +8,10 @@ const nextConfig = {
   reactStrictMode: true,
   basePath,
   assetPrefix: basePath || undefined,
+  // Standalone output bundles only the modules actually imported by the app
+  // into .next/standalone, so the production image doesn't need node_modules
+  // at all (avoids pnpm .pnpm symlink fragility under Docker COPY).
+  output: "standalone",
 };
 
 export default nextConfig;

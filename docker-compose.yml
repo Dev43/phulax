@@ -53,6 +53,8 @@ services:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+    env_file:
+      - .env
     environment:
       PHULAX_HOST: ${PHULAX_HOST:-localhost}
     depends_on:
@@ -64,6 +66,8 @@ services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
       <<: *env_db
     volumes:
@@ -78,6 +82,8 @@ services:
   localstack:
     image: localstack/localstack:3.7
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
       - SERVICES=sqs
       - DEBUG=0
@@ -102,10 +108,18 @@ services:
     image: phulax-keeperhub:latest
     pull_policy: never
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
       <<: [*env_db_connection, *env_aws, *env_sqs, *env_kh_service_keys]
       NODE_ENV: production
       KEEPERHUB_API_KEY: ${KEEPERHUB_API_KEY:-}
+      # KH instrumentation hook refuses to boot without these. Generate fresh
+      # values once with `openssl rand -hex 32` per slot and put them in .env;
+      # rotating them invalidates existing sessions/tokens but is cheap to do.
+      BETTER_AUTH_SECRET: "${BETTER_AUTH_SECRET:?missing in .env (openssl rand -hex 32)}"
+      OAUTH_JWT_SECRET: "${OAUTH_JWT_SECRET:?missing in .env (openssl rand -hex 32)}"
+      MCP_SESSION_SECRET: "${MCP_SESSION_SECRET:?missing in .env (openssl rand -hex 32)}"
       # Internal hostname for inference — KH workflow HTTP steps resolve this
       # via Docker DNS instead of going out through Caddy.
       PHULAX_INFERENCE_URL: http://inference:8000
@@ -126,6 +140,8 @@ services:
     image: phulax-web:latest
     pull_policy: never
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
       NODE_ENV: production
       NEXT_PUBLIC_BASE_PATH: /web
@@ -140,6 +156,8 @@ services:
     image: phulax-agent:latest
     pull_policy: never
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
       NODE_ENV: production
       PORT: "8787"
@@ -162,6 +180,8 @@ services:
     image: phulax-inference:latest
     pull_policy: never
     restart: unless-stopped
+    env_file:
+      - .env
     environment:
       PHULAX_INFERENCE_PHASE: auto
       PHULAX_INFERENCE_HMAC_KEY: ${PHULAX_INFERENCE_HMAC_KEY:?set in .env}

@@ -1,7 +1,7 @@
 # Phulax web dashboard — built from the repo root so pnpm-workspace.yaml +
 # lockfile are in scope. The basePath is baked at build time; pass via
 # --build-arg NEXT_PUBLIC_BASE_PATH=/web (or whatever Caddy mounts it under).
-#   docker build -f deploy/Dockerfile.web --build-arg NEXT_PUBLIC_BASE_PATH=/web -t phulax/web .
+#   docker build -f deploy/Dockerfile.web --build-arg NEXT_PUBLIC_BASE_PATH=/web -t phulax-web .
 
 FROM node:20-alpine AS base
 RUN corepack enable && corepack prepare pnpm@9.12.3 --activate
@@ -19,16 +19,15 @@ ENV NEXT_PUBLIC_BASE_PATH=$NEXT_PUBLIC_BASE_PATH
 COPY web/ web/
 RUN pnpm --filter @phulax/web build
 
-FROM base AS runner
+# Runner uses Next.js standalone output (web/next.config.mjs sets
+# output: "standalone"). The standalone bundle ships everything needed —
+# no node_modules COPY, no pnpm symlink dance.
+FROM node:20-alpine AS runner
 ENV NODE_ENV=production
 WORKDIR /app
 ARG NEXT_PUBLIC_BASE_PATH=""
 ENV NEXT_PUBLIC_BASE_PATH=$NEXT_PUBLIC_BASE_PATH
-COPY --from=build /repo/web/package.json ./package.json
-COPY --from=build /repo/web/.next ./.next
-COPY --from=build /repo/web/next.config.mjs ./next.config.mjs
-COPY --from=build /repo/web/node_modules ./node_modules
-# (web/public intentionally omitted — Next.js doesn't require it and the
-# dashboard ships no static assets through it.)
+COPY --from=build /repo/web/.next/standalone ./
+COPY --from=build /repo/web/.next/static ./web/.next/static
 EXPOSE 3000
-CMD ["node_modules/.bin/next", "start", "-p", "3000"]
+CMD ["node", "web/server.js"]
