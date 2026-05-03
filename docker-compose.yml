@@ -210,8 +210,11 @@ services:
     environment:
       NODE_ENV: production
       NEXT_PUBLIC_BASE_PATH: /web
-      NEXT_PUBLIC_AGENT_URL: /agent
-      # NEXT_PUBLIC_* anything the dashboard needs — keep in .env
+      # NEXT_PUBLIC_AGENT_BASE_URL is read at *build* time (Next.js inlines
+      # NEXT_PUBLIC_* into the client bundle), so a runtime env here is a
+      # no-op. The dashboard defaults to the relative path `/agent`, which
+      # Caddy reverse-proxies to agent:8787. To override, plumb a build arg
+      # through deploy/Dockerfile.web.
     networks: [phulax]
 
   agent:
