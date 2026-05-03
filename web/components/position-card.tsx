@@ -57,6 +57,21 @@ export function PositionCard({ onLog }: { onLog: (msg: string) => void }) {
     query: { enabled: Boolean(address), refetchInterval: 12_000 },
   });
 
+  // PhulaxAccount.deposit/withdraw are onlyOwner. Pre-gate the buttons
+  // so a non-owner wallet doesn't hit a `NotOwner` revert at the wallet
+  // popup with no context. The full message lives in OwnerMismatchBanner.
+  const { data: ownerRaw } = useReadContract({
+    address: PHULAX_ACCOUNT,
+    abi: phulaxAccountAbi,
+    functionName: "owner",
+    chainId: OG_CHAIN_ID,
+    query: { staleTime: 60_000 },
+  });
+  const isOwner =
+    Boolean(address) &&
+    typeof ownerRaw === "string" &&
+    ownerRaw.toLowerCase() === address!.toLowerCase();
+
   const position = (positionRaw as bigint | undefined) ?? 0n;
   const wallet = (walletRaw as bigint | undefined) ?? 0n;
   const positionFmt = `${Number(formatUnits(position, 18)).toLocaleString(undefined, {
@@ -182,7 +197,10 @@ export function PositionCard({ onLog }: { onLog: (msg: string) => void }) {
   // Strict-gate writes on `chainReady` (wallet's actual eth_chainId === 16602),
   // not just `isConnected`. Without this we'd let the user click Mint while
   // the wallet is on Ethereum, and the tx would land on the wrong chain.
-  const disabled = !isConnected || busy !== null || !chainReady;
+  // Mint stays open to any wallet (DemoAsset.mint is permissionless), but
+  // deposit/withdraw need ownership over PhulaxAccount.
+  const baseDisabled = !isConnected || busy !== null || !chainReady;
+  const ownerOnlyDisabled = baseDisabled || !isOwner;
   const needsMint = isConnected && wallet < DEPOSIT_AMOUNT;
 
   return (
@@ -216,7 +234,7 @@ export function PositionCard({ onLog }: { onLog: (msg: string) => void }) {
             size="sm"
             className="w-full"
             onClick={mint}
-            disabled={disabled}
+            disabled={baseDisabled}
           >
             <Coins className="h-4 w-4" />
             {busy === "mint" ? "minting…" : "Mint 100 pUSD"}
@@ -227,8 +245,14 @@ export function PositionCard({ onLog }: { onLog: (msg: string) => void }) {
           <Button
             className="flex-1"
             onClick={deposit}
-            disabled={disabled || wallet < DEPOSIT_AMOUNT}
-            title={wallet < DEPOSIT_AMOUNT ? "mint pUSD first" : undefined}
+            disabled={ownerOnlyDisabled || wallet < DEPOSIT_AMOUNT}
+            title={
+              !isOwner && isConnected
+                ? "connected wallet is not the PhulaxAccount owner"
+                : wallet < DEPOSIT_AMOUNT
+                  ? "mint pUSD first"
+                  : undefined
+            }
           >
             <ArrowDownToLine className="h-4 w-4" />
             {busy === "deposit" ? "depositing…" : "Deposit 100"}
@@ -237,7 +261,12 @@ export function PositionCard({ onLog }: { onLog: (msg: string) => void }) {
             className="flex-1"
             variant="outline"
             onClick={withdraw}
-            disabled={disabled || position === 0n}
+            disabled={ownerOnlyDisabled || position === 0n}
+            title={
+              !isOwner && isConnected
+                ? "connected wallet is not the PhulaxAccount owner"
+                : undefined
+            }
           >
             <ArrowUpFromLine className="h-4 w-4" />
             {busy === "withdraw" ? "withdrawing…" : "Withdraw"}
