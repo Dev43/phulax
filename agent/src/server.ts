@@ -241,7 +241,8 @@ export async function buildServer() {
 
   // Combine rule score + classifier into a final decision.
   app.post<{ Body: DecideBody }>("/decide", async (req) => {
-    const { account, adapter, txHash, ruleScore, classifier } = req.body;
+    const { account, adapter, txHash, ruleScore } = req.body;
+    const classifier = normalizeClassifier(req.body.classifier);
     const policy: RiskPolicy = { ...defaultPolicy(), ...(req.body.policy ?? {}) };
 
     const merged: Score = mergeClassifierIntoScore(ruleScore, classifier);
@@ -362,6 +363,31 @@ function toRaw(t: QueryTx): RawTx | null {
     to: config().pool,
     value: BigInt(t.value),
     input,
+  };
+}
+
+// inference/server.py emits the receipt in snake_case (`p_nefarious`,
+// `model_hash`, `input_hash`); ClassifierReceipt is camelCase. KH workflow
+// pipes the inference response straight through, so the keys arrive
+// snake_case. Map them so mergeClassifierIntoScore actually sees a number
+// in `pNefarious` (otherwise it's undefined → no contribution to the score).
+function normalizeClassifier(c: unknown): ClassifierReceipt | null {
+  if (!c || typeof c !== "object") return null;
+  const o = c as Record<string, unknown>;
+  const pn =
+    typeof o["pNefarious"] === "number" ? (o["pNefarious"] as number)
+    : typeof o["p_nefarious"] === "number" ? (o["p_nefarious"] as number)
+    : Number.NaN;
+  if (!Number.isFinite(pn)) return null;
+  return {
+    pNefarious: pn,
+    tag: typeof o["tag"] === "string" ? (o["tag"] as string) : "",
+    inputHash: ((o["inputHash"] ?? o["input_hash"]) as Hex) ?? "0x",
+    outputHash: ((o["outputHash"] ?? o["output_hash"] ?? o["signature"]) as Hex) ?? "0x",
+    modelHash: ((o["modelHash"] ?? o["model_hash"]) as Hex) ?? "0x",
+    weightsCid: typeof o["weightsCid"] === "string" ? (o["weightsCid"] as string)
+      : typeof o["weights_cid"] === "string" ? (o["weights_cid"] as string)
+      : "",
   };
 }
 
