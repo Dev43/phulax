@@ -10,6 +10,12 @@
 # hash of the chosen demo password — generated with `htpasswd -nbBC 14`.
 
 {$PHULAX_HOST:localhost} {
+    # Use Caddy's own internal CA (self-signed) instead of ACME. ACME / Let's
+    # Encrypt cannot issue certificates for raw IP addresses, and the demo
+    # box is reached by IP. Once a real DNS A record is in place, switch this
+    # back to ACME by deleting this `tls internal` line.
+    tls internal
+
     encode gzip zstd
 
     # Site-wide gate. Same creds for every path. To rotate, regenerate with:
