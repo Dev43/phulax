@@ -91,7 +91,7 @@ def panel_with_header(
         chip(ax, x + 0.18, cy, w - 0.36, chip_h, text)
 
 
-def chip(ax, x, y, w, h, text, *, fill="#1A2236", fg=MUTED, fs=8.5):
+def chip(ax, x, y, w, h, text, *, fill="#1A2236", fg=MUTED, fs=8.5, family=None, ha="center"):
     patch = FancyBboxPatch(
         (x, y),
         w,
@@ -103,7 +103,8 @@ def chip(ax, x, y, w, h, text, *, fill="#1A2236", fg=MUTED, fs=8.5):
         alpha=0.95,
     )
     ax.add_patch(patch)
-    ax.text(x + w / 2, y + h / 2, text, ha="center", va="center", color=fg, fontsize=fs)
+    tx = x + w / 2 if ha == "center" else x + 0.18
+    ax.text(tx, y + h / 2, text, ha=ha, va="center", color=fg, fontsize=fs, family=family)
 
 
 def simple_box(ax, x, y, w, h, text, *, fill=ACCENT, edge=None, fg=FG, fs=11, weight="bold"):
@@ -398,46 +399,123 @@ def render_inft_card():
         "The agent isn't a SaaS account. It's a token. Policy, memory, and model link travel with the holder.",
     )
 
-    # iNFT body
-    panel(ax, 0.6, 0.6, 6.0, 6.0, fill="#2A1742", edge=ACCENT)
+    # ---------- Left: token card ----------
+    # subtle drop-shadow
+    panel(ax, 0.72, 0.28, 6.0, 6.20, fill="#000000", edge="#000000", alpha=0.35, lw=0)
+    # main panel — extended down to share y-range with the right column
+    panel(ax, 0.6, 0.4, 6.0, 6.20, fill="#1B0F35", edge=ACCENT, lw=1.8)
+
+    # accent ribbon — top inner edge
+    ribbon = FancyBboxPatch(
+        (0.85, 6.30),
+        5.5,
+        0.10,
+        boxstyle="round,pad=0,rounding_size=0.04",
+        linewidth=0,
+        facecolor=ACCENT,
+        alpha=0.55,
+    )
+    ax.add_patch(ribbon)
+
+    # token avatar — circle + glyph
+    avatar = plt.Circle(
+        (1.20, 5.85), 0.34, facecolor=ACCENT, edgecolor=FG, linewidth=1.2, zorder=3
+    )
+    ax.add_patch(avatar)
     ax.text(
-        0.85,
-        6.0,
-        "PhulaxINFT  #0001",
+        1.20,
+        5.83,
+        "Φ",
+        ha="center",
+        va="center",
+        color=FG,
+        fontsize=18,
+        fontweight="bold",
+        zorder=4,
+    )
+
+    # title block
+    ax.text(
+        1.78,
+        6.02,
+        "PhulaxINFT",
         ha="left",
         va="center",
         color=FG,
-        fontsize=14,
+        fontsize=15,
         fontweight="bold",
     )
-    ax.text(0.85, 5.55, "ERC-7857  ·  0G Galileo", ha="left", va="center", color=MUTED, fontsize=10)
+    ax.text(
+        1.78,
+        5.65,
+        "#0001  ·  ERC-7857  ·  0G Galileo",
+        ha="left",
+        va="center",
+        color=MUTED,
+        fontsize=9.5,
+    )
 
-    chip(ax, 0.85, 4.65, 5.5, 0.55, "policy.threshold = 0.78")
-    chip(ax, 0.85, 4.00, 5.5, 0.55, "policy.adapters = [FakePoolAdapter]")
-    chip(ax, 0.85, 3.35, 5.5, 0.55, "policy.feedback.fp_rate = 0/0")
-    chip(ax, 0.85, 2.70, 5.5, 0.55, "memory  →  0g://kv/incidents/<owner>")
-    chip(ax, 0.85, 2.05, 5.5, 0.55, "model_hash = sha256(merged.safetensors)")
-    chip(ax, 0.85, 1.40, 5.5, 0.55, "linked PhulaxAccount = 0xA70060...18a66")
+    # corner mini-badge
+    chip(ax, 5.10, 6.00, 1.20, 0.38, "iNFT", fill="#3A2B6E", fg=FG, fs=8.5)
 
-    # right column
+    # divider
+    ax.plot([0.85, 6.35], [5.30, 5.30], color="#3A2B6E", lw=1.0, alpha=0.7)
+
+    def _section(y, label, color):
+        ax.text(
+            0.85,
+            y,
+            label,
+            ha="left",
+            va="center",
+            color=color,
+            fontsize=8,
+            fontweight="bold",
+        )
+
+    def _mono(y, text):
+        chip(ax, 0.85, y, 5.5, 0.42, text, family="monospace", ha="left", fs=8.5)
+
+    # POLICY
+    _section(5.05, "POLICY", ACCENT2)
+    _mono(4.45, "threshold = 0.78")
+    _mono(3.95, "adapters = [FakePoolAdapter]")
+    _mono(3.45, "feedback.fp_rate = 0 / 0")
+
+    # MEMORY & MODEL
+    _section(3.00, "MEMORY  &  MODEL", OK)
+    _mono(2.40, "memory  →  0g://kv/incidents/<owner>")
+    _mono(1.90, "model_hash = sha256(merged.safetensors)")
+
+    # IDENTITY
+    _section(1.45, "IDENTITY", WARN)
+    _mono(0.85, "PhulaxAccount = 0xA70060…18a66")
+
+    # ---------- Right column: per-panel heights sized to chip count ----------
+    # Range matches the card: y in [0.40, 6.60].
+    # Panel heights satisfy h ≥ 1.37 + (n-1)*0.54 so chips don't overflow.
+    rx, rw = 7.4, 6.2
+
+    # Top: Signed receipt (1 chip)
     panel_with_header(
         ax,
-        7.4,
-        5.1,
-        6.2,
-        1.5,
+        rx,
+        5.15,
+        rw,
+        1.45,
         "Signed receipt (per fire)",
         chips=["{ input_hash, output, model_hash, signature }  →  0G Storage Log"],
         fill="#102841",
         edge=ACCENT2,
     )
 
+    # Middle: Verifiability (2 chips)
     panel_with_header(
         ax,
-        7.4,
-        3.0,
-        6.2,
-        1.8,
+        rx,
+        3.05,
+        rw,
+        2.00,
         "Verifiability story",
         chips=[
             "weights on 0G Storage  +  eval harness",
@@ -447,12 +525,13 @@ def render_inft_card():
         edge=OK,
     )
 
+    # Bottom: Permission boundary (3 chips)
     panel_with_header(
         ax,
-        7.4,
-        0.6,
-        6.2,
-        2.0,
+        rx,
+        0.40,
+        rw,
+        2.55,
         "Permission boundary",
         chips=[
             "agent key can call ONE selector",
