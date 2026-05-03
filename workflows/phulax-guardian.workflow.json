@@ -60,7 +60,7 @@
         "type": "action",
         "config": {
           "actionType": "HTTP Request",
-          "endpoint": "http://localhost:8787/detect-features",
+          "endpoint": "http://agent:8787/detect-features",
           "httpMethod": "POST",
           "httpHeaders": "{\"content-type\":\"application/json\"}",
           "httpBody": "{\"account\":\"0xA70060465c1cD280E72366082fE20C7618C18a66\",\"adapter\":\"0x0c39fF914e41DA07B815937ee70772ba21A5C760\",\"events\":{{@action-query:Query Pool Withdraws.events}}}"
@@ -89,7 +89,7 @@
         "type": "action",
         "config": {
           "actionType": "HTTP Request",
-          "endpoint": "https://phulax-inference.fly.dev/classify",
+          "endpoint": "http://inference:8000/classify",
           "httpMethod": "POST",
           "httpHeaders": "{\"content-type\":\"application/json\"}",
           "httpBody": "{{@action-detect:Detect (tier 1/2/3).data.candidate.classifierInput}}"
@@ -105,7 +105,7 @@
         "type": "action",
         "config": {
           "actionType": "HTTP Request",
-          "endpoint": "http://localhost:8787/decide",
+          "endpoint": "http://agent:8787/decide",
           "httpMethod": "POST",
           "httpHeaders": "{\"content-type\":\"application/json\"}",
           "httpBody": "{\"account\":\"0xA70060465c1cD280E72366082fE20C7618C18a66\",\"adapter\":\"0x0c39fF914e41DA07B815937ee70772ba21A5C760\",\"txHash\":\"{{@action-detect:Detect (tier 1/2/3).data.candidate.txHash}}\",\"ruleScore\":{{@action-detect:Detect (tier 1/2/3).data.candidate.ruleScore}},\"classifier\":{{@action-classify:Classify (tier 4 — 0G compute slot).data}}}"
