@@ -6,8 +6,6 @@
 #   /agent, /agent/* → phulax agent (Fastify; Caddy strips the prefix)
 #   inference        → internal only; agent + KH talk to it on the Docker network
 #
-# Caddy holds basic_auth at the site level (creds in deploy/Caddyfile).
-#
 # Usage:
 #   cp deploy/.env.example .env       # fill in secrets
 #   docker compose up -d --build       # first run will be slow (KH + inference both ~1 GB)

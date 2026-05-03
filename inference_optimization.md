@@ -158,7 +158,7 @@ After redeploy, **re-run `ml/eval/REPORT.md`** against the live service:
 
 ```bash
 cd ml && uv run python -m eval.harness --endpoint https://46.225.141.153/inference/classify \
-  --hmac-key "$PHULAX_INFERENCE_HMAC_KEY" --basic-auth ethglobal:iofreoifjeroi4324234
+  --hmac-key "$PHULAX_INFERENCE_HMAC_KEY"
 ```
 
 Q4 quantization typically loses 1–3 percentage points of precision/recall vs.

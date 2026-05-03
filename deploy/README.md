@@ -11,22 +11,12 @@ KeeperHub:
 | `/agent`, `/agent/*`| Phulax agent (HTTP)  | Browser-friendly log tail at `/agent`; Caddy strips the prefix before forwarding |
 | (internal only)     | inference            | Agent + KH workflow call `http://inference:8000` over the Docker network |
 
-Caddy gates everything with HTTP basic auth. Default creds:
-
-- **username:** `ethglobal`
-- **password:** `iofreoifjeroi4324234`
-
-The bcrypt hash is hard-coded in `deploy/Caddyfile`. To rotate:
-
-```bash
-htpasswd -nbBC 14 ethglobal '<new-password>'
-```
-
-…and replace the line under `basic_auth { ... }`.
+The site is open — anyone on the network can reach it. KeeperHub still
+enforces its own auth at the apex.
 
 ## What runs in the stack
 
-- `caddy` — reverse proxy, ACME, basic_auth.
+- `caddy` — reverse proxy + ACME.
 - `db` — Postgres 16 for KeeperHub.
 - `localstack` — SQS only; KeeperHub workers expect it.
 - `keeperhub` — Next.js app from the submodule's `Dockerfile` (target `runner`).
@@ -85,11 +75,11 @@ seconds later.
 
 Caddy auto-provisions a Let's Encrypt cert when `PHULAX_HOST` is a real
 DNS name pointed at the box's IP. For local bring-up against `localhost`,
-the cert is self-signed — the browser will warn, but basic_auth still works.
+the cert is self-signed — the browser will warn.
 
 ## Security model
 
-- Caddy basic_auth gates **everything**, including `/web` and `/agent`. KeeperHub also has its own auth, which becomes a second gate at the apex.
+- The site is open at the Caddy layer. KeeperHub enforces its own auth at the apex; `/web` and `/agent` are unauthenticated by design (read-only dashboard + log tail).
 - The agent container has no on-chain signing key. If `AGENT_PRIVATE_KEY` is ever set in env, the runtime is wired so only `agent/src/exec/withdraw.ts` calls `withdraw(adapter)` (single-selector blast radius enforced in the contract).
 - Inference is only reachable on the Docker network — the Caddyfile has no public mount for it. KeeperHub workflow steps call `http://inference:8000` directly.
 
