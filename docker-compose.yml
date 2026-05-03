@@ -147,12 +147,12 @@ services:
       BETTER_AUTH_URL: "https://${PHULAX_HOST:-localhost}"
       BETTER_AUTH_TRUSTED_ORIGINS: "https://${PHULAX_HOST:-localhost} http://${PHULAX_HOST:-localhost}"
       NEXT_PUBLIC_APP_URL: "https://${PHULAX_HOST:-localhost}"
-      # Switch the workflow runtime to Postgres-backed pg-boss. KH's
-      # instrumentation.ts:94 auto-starts the in-process worker when this
-      # is set, so no separate executor service is needed. Falls back to
-      # @workflow/world-local (filesystem, no worker → runs sit pending)
-      # when unset.
-      WORKFLOW_TARGET_WORLD: "@workflow/world-postgres"
+      # Workflow runtime selector. Set WORKFLOW_TARGET_WORLD=@workflow/world-postgres
+      # in .env once `bash deploy/fix-kh-db.sh` has put the workflow schema
+      # in place. Leave blank/unset to fall back to @workflow/world-local
+      # (filesystem-based; runs sit pending without an executor, but the
+      # KH UI still boots cleanly).
+      WORKFLOW_TARGET_WORLD: "${WORKFLOW_TARGET_WORLD:-}"
       WORKFLOW_POSTGRES_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-keeperhub}
       # Integration encryption key — used when the executor reads
       # workflow integration secrets out of the DB.
