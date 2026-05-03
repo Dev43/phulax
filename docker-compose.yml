@@ -153,6 +153,15 @@ services:
       # (filesystem-based; runs sit pending without an executor, but the
       # KH UI still boots cleanly).
       WORKFLOW_TARGET_WORLD: "${WORKFLOW_TARGET_WORLD:-}"
+      # Next.js standalone binds to whatever $HOSTNAME is set to. Docker sets
+      # HOSTNAME=<container-id> by default, so KH binds to the docker bridge
+      # IP (e.g. 172.18.0.5) and `localhost:3000` from inside the container
+      # is connection-refused. The in-process workflow executor calls itself
+      # via the resolved base URL — without this override it fetch-fails.
+      HOSTNAME: "0.0.0.0"
+      # Belt-and-suspenders: tell @workflow/world-postgres exactly where to
+      # find the local Next.js so it doesn't rely on auto-detection.
+      WORKFLOW_LOCAL_BASE_URL: "http://localhost:3000"
       # `?sslmode=disable` because the local postgres:16-alpine container
       # has no SSL configured. KH's instrumentation.ts forces explicit SSL
       # mode via ensureExplicitSslMode() — without the disable hint it tries
