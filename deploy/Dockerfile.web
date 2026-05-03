@@ -17,6 +17,10 @@ FROM deps AS build
 ARG NEXT_PUBLIC_BASE_PATH=""
 ENV NEXT_PUBLIC_BASE_PATH=$NEXT_PUBLIC_BASE_PATH
 COPY web/ web/
+# Typed ABIs from `pnpm wagmi` — web/tsconfig.json path alias
+# `@/contracts/abis` resolves to ../contracts/generated/wagmi.ts. Only the
+# generated file is needed at build time; not the Solidity sources.
+COPY contracts/generated contracts/generated
 RUN pnpm --filter @phulax/web build
 
 # Runner — fresh prod install gives a clean node_modules tree (no dangling
