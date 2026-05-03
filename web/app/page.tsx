@@ -22,8 +22,11 @@ const INITIAL_SIGNALS: Signal[] = [
   { name: "classifier", weight: 0.0, detail: "—" },
 ];
 
+// Default to the same-origin `/agent` mount so the dockerized deploy (Caddy
+// reverse-proxies /agent → agent:8787) works without a build arg. Local
+// dev overrides this via web/.env.local → http://localhost:8787.
 const AGENT_BASE_URL =
-  process.env.NEXT_PUBLIC_AGENT_BASE_URL ?? "http://localhost:8787";
+  process.env.NEXT_PUBLIC_AGENT_BASE_URL ?? "/agent";
 
 // Mirrors agent/src/bus.ts StreamEvent. Kept hand-rolled (no shared
 // package) because the payload is small and the agent's TS lives in a
