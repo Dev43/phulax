@@ -141,6 +141,12 @@ services:
       BETTER_AUTH_SECRET: "${BETTER_AUTH_SECRET:?missing in .env (openssl rand -hex 32)}"
       OAUTH_JWT_SECRET: "${OAUTH_JWT_SECRET:?missing in .env (openssl rand -hex 32)}"
       MCP_SESSION_SECRET: "${MCP_SESSION_SECRET:?missing in .env (openssl rand -hex 32)}"
+      # Better-auth canonical site URL + trusted-origin allowlist. Without
+      # both of these, signup/login fails with "Invalid origin" on any host
+      # not in the hardcoded allowlist (lib/auth.ts).
+      BETTER_AUTH_URL: "https://${PHULAX_HOST:-localhost}"
+      BETTER_AUTH_TRUSTED_ORIGINS: "https://${PHULAX_HOST:-localhost} http://${PHULAX_HOST:-localhost}"
+      NEXT_PUBLIC_APP_URL: "https://${PHULAX_HOST:-localhost}"
       # Internal hostname for inference — KH workflow HTTP steps resolve this
       # via Docker DNS instead of going out through Caddy.
       PHULAX_INFERENCE_URL: http://inference:8000
