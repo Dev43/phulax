@@ -33,7 +33,8 @@ export function PositionCard({ onLog }: { onLog: (msg: string) => void }) {
   const { address, isConnected } = useAccount();
   const publicClient = usePublicClient({ chainId: OG_CHAIN_ID });
   const { writeContractAsync } = useWriteContract();
-  const { ensure: ensureOgChain } = useEnsureOgChain();
+  const { ensure: ensureOgChain, isReady: chainReady, onWrongChain } =
+    useEnsureOgChain();
   const [busy, setBusy] = useState<Busy>(null);
 
   // Adapter holds the user's pool position — pool.balanceOf(asset, user) is
@@ -84,7 +85,6 @@ export function PositionCard({ onLog }: { onLog: (msg: string) => void }) {
     try {
       await ensureOgChain();
       const hash = await writeContractAsync({
-        chainId: OG_CHAIN_ID,
         address: DEMO_ASSET,
         abi: demoAssetAbi,
         functionName: "mint",
@@ -115,7 +115,6 @@ export function PositionCard({ onLog }: { onLog: (msg: string) => void }) {
 
       if (allowance < DEPOSIT_AMOUNT) {
         const approveHash = await writeContractAsync({
-          chainId: OG_CHAIN_ID,
           address: DEMO_ASSET,
           abi: demoAssetAbi,
           functionName: "approve",
@@ -128,7 +127,6 @@ export function PositionCard({ onLog }: { onLog: (msg: string) => void }) {
       }
 
       const depositHash = await writeContractAsync({
-        chainId: OG_CHAIN_ID,
         address: PHULAX_ACCOUNT,
         abi: phulaxAccountAbi,
         functionName: "deposit",
@@ -159,7 +157,6 @@ export function PositionCard({ onLog }: { onLog: (msg: string) => void }) {
     try {
       await ensureOgChain();
       const hash = await writeContractAsync({
-        chainId: OG_CHAIN_ID,
         address: PHULAX_ACCOUNT,
         abi: phulaxAccountAbi,
         functionName: "withdraw",
@@ -183,8 +180,9 @@ export function PositionCard({ onLog }: { onLog: (msg: string) => void }) {
     writeContractAsync,
   ]);
 
-  const disabled = !isConnected || busy !== null;
+  const disabled = !isConnected || busy !== null || onWrongChain;
   const needsMint = isConnected && wallet < DEPOSIT_AMOUNT;
+  void chainReady; // referenced for clarity; gating uses onWrongChain
 
   return (
     <Card>
@@ -198,13 +196,15 @@ export function PositionCard({ onLog }: { onLog: (msg: string) => void }) {
             {positionFmt}
           </div>
           <div className="text-xs text-muted-foreground">
-            {isConnected ? (
+            {!isConnected ? (
+              "connect a wallet to deposit"
+            ) : onWrongChain ? (
+              <span className="text-warn">switch to 0G Galileo to act</span>
+            ) : (
               <>
                 wallet {walletFmt} · adapter {FAKE_POOL_ADAPTER.slice(0, 6)}…
                 {FAKE_POOL_ADAPTER.slice(-4)}
               </>
-            ) : (
-              "connect a wallet to deposit"
             )}
           </div>
         </div>

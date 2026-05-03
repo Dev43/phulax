@@ -118,7 +118,7 @@ export function DemoButtons({ onLog }: DemoButtonsProps) {
   const { address, isConnected } = useAccount();
   const publicClient = usePublicClient({ chainId: OG_CHAIN_ID });
   const { writeContractAsync } = useWriteContract();
-  const { ensure: ensureOgChain } = useEnsureOgChain();
+  const { ensure: ensureOgChain, onWrongChain } = useEnsureOgChain();
   const [running, setRunning] = useState<DemoTxKind | null>(null);
   const [step, setStep] = useState<StepLabel>("");
   const [txs, setTxs] = useState<DemoTx[]>([]);
@@ -139,10 +139,11 @@ export function DemoButtons({ onLog }: DemoButtonsProps) {
       onLog(`[demo] ${label} — sending`);
       // Force the wallet onto 0G Galileo before signing — without this
       // wagmi defaults to the wallet's currently-active chain (often
-      // Ethereum mainnet on a fresh install).
+      // Ethereum mainnet on a fresh install). We don't pass `chainId` to
+      // writeContractAsync because wagmi's strict-match races Rabby's
+      // injected provider (see lib/chain.ts comment).
       await ensureOgChain();
       const hash = await writeContractAsync({
-        chainId: OG_CHAIN_ID,
         address: to,
         abi,
         // biome-ignore lint/suspicious/noExplicitAny: see above
@@ -288,7 +289,7 @@ export function DemoButtons({ onLog }: DemoButtonsProps) {
   }, [address, onLog, send]);
 
   const busy = running !== null;
-  const disabled = !isConnected || busy;
+  const disabled = !isConnected || busy || onWrongChain;
   const label =
     running === "benign"
       ? `benign · ${step}`
@@ -330,6 +331,11 @@ export function DemoButtons({ onLog }: DemoButtonsProps) {
         {label === null && !isConnected && (
           <span className="text-[11px] text-muted-foreground">
             connect wallet to enable
+          </span>
+        )}
+        {label === null && isConnected && onWrongChain && (
+          <span className="text-[11px] text-warn">
+            switch to 0G Galileo to enable
           </span>
         )}
       </div>
