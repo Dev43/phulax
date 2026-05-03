@@ -1,9 +1,17 @@
 """Phulax self-hosted classifier endpoint.
 
-Phase 2 (this file): real transformers serving of the merged Qwen2.5-0.5B + LoRA
-weights at PHULAX_MODEL_DIR. Falls back to the Phase 1 stub if no model dir is
-set (or the dir is missing) so Track A's E2E synthetic workflow + the existing
-HMAC test suite still pass without weights present.
+Phase 3 (this file): three serving backends behind one wire shape.
+  - llama_cpp     — Q4 GGUF via llama-cpp-python (fastest CPU path, default
+                    when a *.gguf file lives under PHULAX_MODEL_DIR)
+  - transformers  — full safetensors via the transformers library
+  - stub          — deterministic SAFE-only fallback for tests / dep-free runs
+
+Selection is automatic via PHULAX_INFERENCE_BACKEND=auto:
+  *.gguf in MODEL_DIR  →  llama_cpp
+  transformers files   →  transformers
+  neither              →  stub
+PHULAX_INFERENCE_BACKEND=llama_cpp|transformers|stub forces a specific path
+(legacy PHULAX_INFERENCE_PHASE is honored as a fallback for the same choice).
 
 Contract (todo §10):
     POST /classify { features: <canonicalised tx feature blob> }
@@ -13,11 +21,11 @@ signature = HMAC-SHA256(key, model_hash || input_hash || output_json)
 key       = PHULAX_INFERENCE_HMAC_KEY env var (per-deployment)
 
 Boot env:
-    PHULAX_MODEL_DIR              path to ml/artifacts/merged (transformers shape)
+    PHULAX_MODEL_DIR              path to ml/artifacts/merged or a dir with *.gguf
     PHULAX_INFERENCE_HMAC_KEY     receipt-signing key (no in-image default)
-    PHULAX_INFERENCE_PHASE        'auto' (default) | 'stub' | 'transformers'
-                                  'auto' uses transformers iff MODEL_DIR resolves.
-    PHULAX_INFERENCE_MAX_NEW       max new tokens for the JSON response (default 48)
+    PHULAX_INFERENCE_BACKEND      'auto' (default) | 'stub' | 'transformers' | 'llama_cpp'
+    PHULAX_INFERENCE_PHASE        legacy alias for BACKEND
+    PHULAX_INFERENCE_MAX_NEW      max new tokens for the JSON response (default 48)
 """
 
 from __future__ import annotations
@@ -52,54 +60,102 @@ log = logging.getLogger("phulax.inference")
 logging.basicConfig(level=os.environ.get("PHULAX_LOG_LEVEL", "INFO"))
 
 
-PHASE_REQUEST = os.environ.get("PHULAX_INFERENCE_PHASE", "auto")
+# Resolve backend with new-name preference, fall through to legacy PHASE name.
+_BACKEND_REQUEST = (
+    os.environ.get("PHULAX_INFERENCE_BACKEND")
+    or os.environ.get("PHULAX_INFERENCE_PHASE")
+    or "auto"
+).lower()
 MODEL_DIR = os.environ.get("PHULAX_MODEL_DIR", "").strip()
 HMAC_KEY = os.environ.get("PHULAX_INFERENCE_HMAC_KEY", "dev-insecure-key").encode()
 MAX_NEW_TOKENS = int(os.environ.get("PHULAX_INFERENCE_MAX_NEW", "48"))
 
 
-def _hash_model_dir(model_dir: Path) -> str:
-    """sha256 over model.safetensors (the only weight blob in our merged dir).
+def _find_gguf(model_dir: Path) -> Path | None:
+    """First *.gguf under model_dir, sorted (so phulax-q4.gguf wins over phulax-fp16.gguf)."""
+    if not model_dir.is_dir():
+        return None
+    ggufs = sorted(model_dir.glob("*.gguf"))
+    # Prefer Q* (quantized) over fp16 — Q comes before f in ASCII, so the
+    # default sort already does the right thing for our naming convention
+    # (phulax-q4.gguf < phulax-fp16.gguf is False — sort by size instead).
+    if not ggufs:
+        return None
+    return min(ggufs, key=lambda p: p.stat().st_size)
 
-    Matches what `python -m upload.og_storage` records as the publish-time
-    model_hash, so receipts anchor back to the on-0G CID.
-    """
+
+def _hash_file(path: Path) -> str:
     h = hashlib.sha256()
-    weights = model_dir / "model.safetensors"
-    if not weights.exists():
-        # fall back to hashing every file deterministically
-        for p in sorted(model_dir.iterdir()):
-            if p.is_file():
-                h.update(p.name.encode())
-                h.update(p.read_bytes())
-        return h.hexdigest()
-    with weights.open("rb") as f:
+    with path.open("rb") as f:
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
     return h.hexdigest()
 
 
-def _resolve_phase() -> tuple[str, str]:
-    """Decide stub vs transformers and compute MODEL_HASH at boot.
+def _hash_model_dir(model_dir: Path) -> str:
+    """Compute the published model_hash for the receipt.
 
-    Returns (phase, model_hash).
+    Prefer the GGUF (matches what `python -m upload.og_storage` records when
+    the GGUF is the published artifact). Fall back to model.safetensors, then
+    to a deterministic hash of every file in the dir.
     """
-    if PHASE_REQUEST == "stub":
+    gguf = _find_gguf(model_dir)
+    if gguf is not None:
+        return _hash_file(gguf)
+    weights = model_dir / "model.safetensors"
+    if weights.exists():
+        return _hash_file(weights)
+    h = hashlib.sha256()
+    for p in sorted(model_dir.iterdir()):
+        if p.is_file():
+            h.update(p.name.encode())
+            h.update(p.read_bytes())
+    return h.hexdigest()
+
+
+def _resolve_phase() -> tuple[str, str]:
+    """Decide stub | transformers | llama_cpp and compute MODEL_HASH at boot.
+
+    Returns (phase, model_hash). `phase` matches what /healthz reports.
+    """
+    if _BACKEND_REQUEST == "stub":
         return "stub", os.environ.get("PHULAX_MODEL_HASH", "stub")
-    if PHASE_REQUEST in ("auto", "transformers"):
-        if MODEL_DIR and Path(MODEL_DIR).is_dir():
-            try:
-                mh = _hash_model_dir(Path(MODEL_DIR))
-                log.info("loaded model_dir=%s model_hash=%s template_version=%s",
-                         MODEL_DIR, mh, TEMPLATE_VERSION)
-                return "transformers", mh
-            except Exception as e:
-                log.warning("model_hash failed for %s: %s; falling back to stub", MODEL_DIR, e)
-        if PHASE_REQUEST == "transformers":
+
+    have_dir = bool(MODEL_DIR) and Path(MODEL_DIR).is_dir()
+    gguf = _find_gguf(Path(MODEL_DIR)) if have_dir else None
+
+    # Auto: prefer llama_cpp when a GGUF is present, else transformers, else stub.
+    if _BACKEND_REQUEST == "auto":
+        if gguf is not None:
+            phase = "llama_cpp"
+        elif have_dir:
+            phase = "transformers"
+        else:
+            return "stub", os.environ.get("PHULAX_MODEL_HASH", "stub")
+    elif _BACKEND_REQUEST in ("llama_cpp", "transformers"):
+        phase = _BACKEND_REQUEST
+        if not have_dir:
             raise RuntimeError(
-                f"PHULAX_INFERENCE_PHASE=transformers but PHULAX_MODEL_DIR={MODEL_DIR!r} is not a directory"
+                f"PHULAX_INFERENCE_BACKEND={phase} but PHULAX_MODEL_DIR={MODEL_DIR!r} is not a directory"
             )
-    return "stub", os.environ.get("PHULAX_MODEL_HASH", "stub")
+        if phase == "llama_cpp" and gguf is None:
+            raise RuntimeError(
+                f"PHULAX_INFERENCE_BACKEND=llama_cpp but no *.gguf under {MODEL_DIR}"
+            )
+    else:
+        log.warning("unknown PHULAX_INFERENCE_BACKEND=%r; falling back to stub", _BACKEND_REQUEST)
+        return "stub", os.environ.get("PHULAX_MODEL_HASH", "stub")
+
+    try:
+        mh = _hash_model_dir(Path(MODEL_DIR))
+        log.info(
+            "loaded model_dir=%s phase=%s model_hash=%s template_version=%s gguf=%s",
+            MODEL_DIR, phase, mh, TEMPLATE_VERSION, gguf.name if gguf else None,
+        )
+        return phase, mh
+    except Exception as e:
+        log.warning("model_hash failed for %s: %s; falling back to stub", MODEL_DIR, e)
+        return "stub", os.environ.get("PHULAX_MODEL_HASH", "stub")
 
 
 PHASE, MODEL_HASH = _resolve_phase()
@@ -125,7 +181,7 @@ class ClassifyResponse(BaseModel):
     signature: str
 
 
-app = FastAPI(title="phulax-inference", version="0.2.0")
+app = FastAPI(title="phulax-inference", version="0.3.0")
 
 
 def _canonical(features: Any) -> bytes:
@@ -137,7 +193,7 @@ def _canonical(features: Any) -> bytes:
     return json.dumps(features, sort_keys=True, separators=(",", ":")).encode()
 
 
-def _ensure_model() -> tuple[Any, Any]:
+def _ensure_transformers_model() -> tuple[Any, Any]:
     global _model, _tokenizer
     if _model is not None:
         return _model, _tokenizer
@@ -162,6 +218,48 @@ def _ensure_model() -> tuple[Any, Any]:
         mdl.eval()
         _model, _tokenizer = mdl, tok
         return _model, _tokenizer
+
+
+def _ensure_llama_cpp_model() -> Any:
+    """Lazy-init llama_cpp.Llama with the chat template attached."""
+    global _model
+    if _model is not None:
+        return _model
+    with _model_lock:
+        if _model is not None:
+            return _model
+        from llama_cpp import Llama  # heavy import
+        from llama_cpp.llama_chat_format import Jinja2ChatFormatter
+
+        gguf = _find_gguf(Path(MODEL_DIR))
+        if gguf is None:
+            raise RuntimeError(f"no *.gguf under {MODEL_DIR}")
+        log.info("loading llama_cpp model from %s", gguf)
+
+        # Chat template: prefer the sidecar .jinja from the merged dir over
+        # whatever's embedded in the GGUF (the embedded one occasionally
+        # decays to a generic format that breaks structured-JSON output).
+        template_file = Path(MODEL_DIR) / "chat_template.jinja"
+        chat_handler = None
+        if template_file.exists():
+            chat_handler = Jinja2ChatFormatter(
+                template=template_file.read_text(),
+                eos_token="<|im_end|>",
+                bos_token="",
+            ).to_chat_handler()
+            log.info("attached chat_template from %s", template_file)
+
+        n_threads = max(1, (os.cpu_count() or 4))
+        mdl = Llama(
+            model_path=str(gguf),
+            n_ctx=int(os.environ.get("PHULAX_INFERENCE_N_CTX", "2048")),
+            n_threads=n_threads,
+            n_threads_batch=n_threads,
+            chat_handler=chat_handler,
+            verbose=False,
+        )
+        _model = mdl
+        return _model
 
 
 _JSON_RE = re.compile(r"\{[^{}]*\}", re.DOTALL)
@@ -224,7 +322,7 @@ def _classify_transformers(features: Any) -> tuple[float, str, str]:
         log.warning("prompt.template unavailable; returning neutral SAFE")
         return 0.0, "stub", "none"
     import torch  # lazy
-    mdl, tok = _ensure_model()
+    mdl, tok = _ensure_transformers_model()
     row = _row_for_template(features)
     msgs = chat_messages(row, with_target=False)
     prompt = tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
@@ -247,11 +345,39 @@ def _classify_transformers(features: Any) -> tuple[float, str, str]:
     return p, tag, signal
 
 
+def _classify_llama_cpp(features: Any) -> tuple[float, str, str]:
+    if chat_messages is None:
+        log.warning("prompt.template unavailable; returning neutral SAFE")
+        return 0.0, "stub", "none"
+    mdl = _ensure_llama_cpp_model()
+    row = _row_for_template(features)
+    msgs = chat_messages(row, with_target=False)
+    # Greedy decode (temperature=0, top_p=1, top_k=1) so input_hash → output
+    # remains deterministic across calls. Receipts only round-trip if this
+    # holds.
+    out = mdl.create_chat_completion(
+        messages=msgs,
+        max_tokens=MAX_NEW_TOKENS,
+        temperature=0.0,
+        top_p=1.0,
+        top_k=1,
+        stop=["</s>", "<|im_end|>"],
+    )
+    text = out["choices"][0]["message"]["content"] or ""
+    p, signal = _parse_output(text)
+    tag = "RISK" if p >= 0.5 else "SAFE"
+    return p, tag, signal
+
+
 def _classify_stub(features: Any) -> tuple[float, str, str]:
     return 0.0, "stub", "none"
 
 
-_CLASSIFIER = _classify_transformers if PHASE == "transformers" else _classify_stub
+_CLASSIFIER = (
+    _classify_llama_cpp if PHASE == "llama_cpp"
+    else _classify_transformers if PHASE == "transformers"
+    else _classify_stub
+)
 
 
 def _sign(model_hash: str, input_hash: str, output: dict[str, Any]) -> str:

@@ -244,22 +244,25 @@ services:
     build:
       context: .
       dockerfile: inference/Dockerfile
-      target: transformers
+      # Q4 GGUF + llama-cpp-python — ~3-5x faster on CPU than transformers FP16.
+      # Switch to `transformers` for the full safetensors path or `stub` for
+      # the dep-free test image. See inference/Dockerfile + inference_optimization.md.
+      target: llama_cpp
     image: phulax-inference:latest
     pull_policy: never
     restart: unless-stopped
     env_file:
       - .env
     environment:
-      PHULAX_INFERENCE_PHASE: auto
+      PHULAX_INFERENCE_BACKEND: llama_cpp
       PHULAX_INFERENCE_HMAC_KEY: ${PHULAX_INFERENCE_HMAC_KEY:?set in .env}
       PHULAX_LOG_LEVEL: INFO
       # Cap generation tokens. The fine-tune target is a one-line JSON
-      # `{"p_nefarious": 0.X, "tag": "..."}` which fits in ~20 tokens; the
-      # default of 48 spent extra time generating padding/EOS we throw away.
-      # Cuts CPU classify latency roughly in half.
-      PHULAX_INFERENCE_MAX_NEW: "${PHULAX_INFERENCE_MAX_NEW:-20}"
-      # PHULAX_MODEL_DIR is set inside the transformers stage of inference/Dockerfile
+      # `{"p_nefarious": 0.X, "tag": "..."}`. With llama.cpp Q4 each token
+      # is fast enough that 32 gives malformed-output recovery headroom in
+      # _parse_output without meaningful latency cost.
+      PHULAX_INFERENCE_MAX_NEW: "${PHULAX_INFERENCE_MAX_NEW:-32}"
+      # PHULAX_MODEL_DIR is set inside the llama_cpp stage of inference/Dockerfile
     networks: [phulax]
 
 networks:
