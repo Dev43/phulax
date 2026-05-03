@@ -42,3 +42,12 @@ ml/datasets
 .vscode
 .idea
 .DS_Store
+
+# Next.js loads .env.local at build time with the highest priority, including
+# during `next build`. If we ship web/.env.local into the docker context, its
+# `NEXT_PUBLIC_AGENT_BASE_URL=http://localhost:8787` gets inlined into the
+# production bundle and the dashboard tries to reach the user's own laptop
+# instead of the same-origin /agent mount Caddy proxies.
+**/.env.local
+**/.env.development.local
+**/.env.test.local
