@@ -164,4 +164,4 @@ phulax/
 
 ---
 
-Phulax - Greek φύλαξ, *guardian*. Built for the 0G x KeeperHub hackathon, 2026.
+Phulax - Greek φύλαξ, *guardian*. Built for the EthGlobal Open Agents hackathon, 2026.
