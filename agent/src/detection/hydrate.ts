@@ -80,6 +80,21 @@ export async function hydrate(
 
   const blockTag = { blockNumber: raw.blockNumber } as const;
   const prevBlockTag = { blockNumber: raw.blockNumber - 1n } as const;
+  // Oracle reference baseline. The pool's getAssetPrice changes per-block
+  // when an attacker calls setAssetPrice — and on Galileo the typical
+  // inflate→drain pattern lands setAssetPrice and withdraw in adjacent
+  // blocks, so blockN-1 ALREADY reflects the inflated price (deviation
+  // reads zero, tier-2 misses the attack). Look back enough blocks to
+  // predate any single-tx manipulation; ~30 blocks ≈ 13s at Galileo's
+  // ~430ms cadence — well outside a one-tx attack window. Configurable
+  // via ORACLE_BASELINE_LOOKBACK env (default 30).
+  const oracleBaselineLookback = BigInt(
+    Number(process.env["ORACLE_BASELINE_LOOKBACK"] ?? "30"),
+  );
+  const oracleBaselineBlock = raw.blockNumber > oracleBaselineLookback
+    ? raw.blockNumber - oracleBaselineLookback
+    : raw.blockNumber - 1n;
+  const oracleBaselineTag = { blockNumber: oracleBaselineBlock } as const;
 
   // Asset arg if the selector takes one (supply/borrow/withdraw/liquidate
   // all have the asset somewhere in args[0..1]; only the four selectors
@@ -130,11 +145,13 @@ export async function hydrate(
 
   // Tier 2: oracle. The pool exposes an asset price for the asset arg
   // (when present); chainlink + TWAP feeds are placeholders that Track B
-  // wires through real oracle adapters. For the demo replay, we read the
-  // pool's getter at the block in question and at block-1 as a stand-in
-  // for the reference feeds. Replays override this via ctx directly.
+  // wires through real oracle adapters. Until those land, we use the pool's
+  // own historical price ~30 blocks back as a stand-in baseline (see
+  // oracleBaselineBlock above). Reading from blockN-1 alone misses the
+  // common inflate-then-drain pattern where both the manipulation and the
+  // exit land in adjacent blocks.
   const oracleAsset = asset ?? pool;
-  const [poolPrice, poolPricePrev] = await Promise.all([
+  const [poolPrice, poolPriceBaseline] = await Promise.all([
     pc.readContract({
       address: pool,
       abi: fakeLendingPoolAbi,
@@ -147,13 +164,13 @@ export async function hydrate(
       abi: fakeLendingPoolAbi,
       functionName: "getAssetPrice",
       args: [oracleAsset],
-      ...prevBlockTag,
+      ...oracleBaselineTag,
     }).catch(() => 0n),
   ]);
   const oracle: OracleSnapshot = {
     poolPrice: poolPrice as bigint,
-    chainlinkPrice: poolPricePrev as bigint, // placeholder — replaced when feeds wired
-    twapPrice: poolPricePrev as bigint,
+    chainlinkPrice: poolPriceBaseline as bigint, // placeholder — replaced when feeds wired
+    twapPrice: poolPriceBaseline as bigint,
     decimals: 8,
   };
 
