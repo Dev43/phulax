@@ -6,3 +6,6 @@ ml/artifacts/og-ft/encrypted/lora_model_f14b9662-62ce-47c7-a564-35df364980f2.zip
 ml/artifacts/v1_lora/
 ml/artifacts/v2_lora/
 ml/artifacts/og-ft/encrypted/model_f14b9662-62ce-47c7-a564-35df364980f2.bin
+
+# Demo tx history (block + hash) appended by scripts/send-{benign,nefarious}.sh
+scripts/demo-txs.jsonl

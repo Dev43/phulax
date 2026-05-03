@@ -27,7 +27,38 @@ POOL="${POOL_ADDRESS:-0xb1DE7278b81e1Fd40027bDac751117AE960d8747}"
 PUSD="${DEMO_ASSET_ADDRESS:-0x21937016d3E3d43a0c2725F47cC56fcb2B51d615}"
 TIP="2gwei" # Galileo minimum priority fee — see CLAUDE.md sharp edges
 
+# Per-tx history sink. Each line is JSON: {ts,kind,label,hash,blockNumber,status}.
+# Append-only across runs so you can correlate later workflow runs with the
+# block range that produced them. Override with TX_LOG=/path/to/file.
+TX_LOG="${TX_LOG:-$REPO/scripts/demo-txs.jsonl}"
+KIND="benign"
+
 EOA="$(cast wallet address --private-key "$PRIVATE_KEY")"
+
+# Convert a possibly-0x-prefixed hex string to decimal. Empty in → empty out.
+hex_to_dec() {
+  local v="$1"
+  [ -z "$v" ] && { echo ""; return; }
+  case "$v" in
+    0x*|0X*) printf '%d' "$v" 2>/dev/null || echo "" ;;
+    *) echo "$v" ;;
+  esac
+}
+
+# Append a JSONL row to TX_LOG. Labels here are author-controlled and don't
+# contain `"`; if that ever changes, swap printf for jq.
+log_tx() {
+  local label="$1" hash="$2" block="$3" status="$4"
+  local ts; ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+  mkdir -p "$(dirname "$TX_LOG")"
+  if [ -n "$block" ]; then
+    printf '{"ts":"%s","kind":"%s","label":"%s","hash":"%s","blockNumber":%s,"status":"%s"}\n' \
+      "$ts" "$KIND" "$label" "$hash" "$block" "$status" >> "$TX_LOG"
+  else
+    printf '{"ts":"%s","kind":"%s","label":"%s","hash":"%s","blockNumber":null,"status":"%s"}\n' \
+      "$ts" "$KIND" "$label" "$hash" "$status" >> "$TX_LOG"
+  fi
+}
 
 # 0G Galileo's RPC occasionally returns null on `eth_getTransactionReceipt`
 # before the receipt propagates, making `cast send` throw "server returned a
@@ -44,18 +75,27 @@ send_async_and_wait() {
     --gas-price 3gwei --priority-gas-price "$TIP" "$@")"
   echo "  tx: $hash"
   for _ in $(seq 1 30); do
-    local status
-    status="$(cast receipt "$hash" --rpc-url "$RPC" --json 2>/dev/null \
-      | sed -n 's/.*"status":"\([^"]*\)".*/\1/p' | head -1)"
+    local receipt_json status block_raw block
+    receipt_json="$(cast receipt "$hash" --rpc-url "$RPC" --json 2>/dev/null || true)"
+    status="$(printf '%s' "$receipt_json" | sed -n 's/.*"status":"\([^"]*\)".*/\1/p' | head -1)"
     if [ -n "$status" ]; then
+      block_raw="$(printf '%s' "$receipt_json" | sed -n 's/.*"blockNumber":"\?\([^",}]*\)"\?.*/\1/p' | head -1)"
+      block="$(hex_to_dec "$block_raw")"
       case "$status" in
-        0x1|"1"|"success") echo "  status: success ($label)"; return 0 ;;
-        *)                 echo "  status: FAILED ($label, status=$status)"; return 1 ;;
+        0x1|"1"|"success")
+          echo "  status: success ($label) block=$block"
+          log_tx "$label" "$hash" "$block" "success"
+          return 0 ;;
+        *)
+          echo "  status: FAILED ($label, status=$status) block=$block"
+          log_tx "$label" "$hash" "$block" "failed"
+          return 1 ;;
       esac
     fi
     sleep 1
   done
   echo "  status: TIMEOUT waiting for receipt ($label)"
+  log_tx "$label" "$hash" "" "timeout"
   return 1
 }
 
@@ -101,6 +141,8 @@ echo "==> Step 4: BENIGN withdraw 1 pUSD  <-- caught by Phulax workflow"
 send_async_and_wait "withdraw/benign" \
   "$POOL" "withdraw(address,uint256,address)" "$PUSD" 1000000000000000000 "$EOA"
 
+echo
+echo "Tx history → $TX_LOG (append-only JSONL: ts, kind, label, hash, blockNumber, status)"
 echo
 echo "Done. Watch the workflow run in KH; expected outcome: no fire."
 echo "  ssh root@\$PHULAX_HOST 'cd /opt/phulax && docker compose logs -f keeperhub | grep -iE \"workflow|detect|classify|decide\"'"

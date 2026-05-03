@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { type Hex, parseEther } from "viem";
 import { useAccount, usePublicClient, useWriteContract } from "wagmi";
 import { Button } from "@/components/ui/button";
-import { Skull, Sparkles } from "lucide-react";
+import { Copy, Skull, Sparkles, Trash2 } from "lucide-react";
 
 const POOL = (process.env.NEXT_PUBLIC_FAKE_POOL ??
   "0xb1DE7278b81e1Fd40027bDac751117AE960d8747") as Hex;
@@ -96,6 +96,18 @@ const INFLATED_PRICE = 10_000_000_000_000_000_000_000_000n; // 1e25 — 10^7x
 type StepLabel = string;
 type Status = "idle" | "running" | "done" | "error";
 
+type DemoTxStatus = "pending" | "confirmed" | "failed";
+type DemoTxKind = "benign" | "nefarious";
+
+interface DemoTx {
+  ts: number;
+  kind: DemoTxKind;
+  label: StepLabel;
+  hash: Hex;
+  blockNumber: bigint | null;
+  status: DemoTxStatus;
+}
+
 interface DemoButtonsProps {
   onLog: (msg: string) => void;
 }
@@ -104,8 +116,12 @@ export function DemoButtons({ onLog }: DemoButtonsProps) {
   const { address, isConnected } = useAccount();
   const publicClient = usePublicClient();
   const { writeContractAsync } = useWriteContract();
-  const [running, setRunning] = useState<"benign" | "nefarious" | null>(null);
+  const [running, setRunning] = useState<DemoTxKind | null>(null);
   const [step, setStep] = useState<StepLabel>("");
+  const [txs, setTxs] = useState<DemoTx[]>([]);
+  // Read inside `send` to tag tx kind. Ref (not state) so it's always
+  // current within the same tick the button handler is mid-await.
+  const kindRef = useRef<DemoTxKind | null>(null);
 
   const send = useCallback(
     async (
@@ -131,10 +147,27 @@ export function DemoButtons({ onLog }: DemoButtonsProps) {
         // needed 2000000000". See CLAUDE.md sharp edges.
         maxPriorityFeePerGas: 2_000_000_000n,
       });
-      onLog(`[demo] ${label} — tx ${hash.slice(0, 10)}…`);
+      const kind = kindRef.current ?? "benign";
+      const sentAt = Date.now();
+      setTxs((prev) => [
+        { ts: sentAt, kind, label, hash, blockNumber: null, status: "pending" },
+        ...prev,
+      ]);
+      onLog(`[demo] ${label} — tx ${hash}`);
       if (publicClient) {
-        await publicClient.waitForTransactionReceipt({ hash });
-        onLog(`[demo] ${label} — confirmed`);
+        const receipt = await publicClient.waitForTransactionReceipt({ hash });
+        const status: DemoTxStatus =
+          receipt.status === "success" ? "confirmed" : "failed";
+        setTxs((prev) =>
+          prev.map((t) =>
+            t.hash === hash
+              ? { ...t, blockNumber: receipt.blockNumber, status }
+              : t,
+          ),
+        );
+        onLog(
+          `[demo] ${label} — ${status} block=${receipt.blockNumber} tx=${hash}`,
+        );
       }
       return hash;
     },
@@ -147,6 +180,7 @@ export function DemoButtons({ onLog }: DemoButtonsProps) {
       return;
     }
     setRunning("benign");
+    kindRef.current = "benign";
     try {
       onLog("[demo] benign sequence: mint → approve → supply → withdraw 1");
 
@@ -209,6 +243,7 @@ export function DemoButtons({ onLog }: DemoButtonsProps) {
       return;
     }
     setRunning("nefarious");
+    kindRef.current = "nefarious";
     try {
       onLog("[demo] nefarious sequence: oracle inflate → drain → restore");
       await send(
@@ -253,30 +288,117 @@ export function DemoButtons({ onLog }: DemoButtonsProps) {
         ? `attack · ${step}`
         : null;
 
+  const copy = useCallback(
+    (text: string) => {
+      navigator.clipboard
+        ?.writeText(text)
+        .then(() => onLog(`[demo] copied ${text}`))
+        .catch(() => {});
+    },
+    [onLog],
+  );
+
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <Button
-        size="sm"
-        variant="outline"
-        onClick={runBenign}
-        disabled={disabled}
-      >
-        <Sparkles className="h-4 w-4" />
-        {running === "benign" ? `running… ${step}` : "Send benign tx"}
-      </Button>
-      <Button
-        size="sm"
-        variant="danger"
-        onClick={runNefarious}
-        disabled={disabled}
-      >
-        <Skull className="h-4 w-4" />
-        {running === "nefarious" ? `attack… ${step}` : "Demo: simulate attack"}
-      </Button>
-      {label === null && !isConnected && (
-        <span className="text-[11px] text-muted-foreground">
-          connect wallet to enable
-        </span>
+    <div className="flex flex-col items-end gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={runBenign}
+          disabled={disabled}
+        >
+          <Sparkles className="h-4 w-4" />
+          {running === "benign" ? `running… ${step}` : "Send benign tx"}
+        </Button>
+        <Button
+          size="sm"
+          variant="danger"
+          onClick={runNefarious}
+          disabled={disabled}
+        >
+          <Skull className="h-4 w-4" />
+          {running === "nefarious" ? `attack… ${step}` : "Demo: simulate attack"}
+        </Button>
+        {label === null && !isConnected && (
+          <span className="text-[11px] text-muted-foreground">
+            connect wallet to enable
+          </span>
+        )}
+      </div>
+
+      {txs.length > 0 && (
+        <details
+          className="w-full min-w-[420px] rounded-md border border-border bg-card/40 px-3 py-2"
+          open
+        >
+          <summary className="flex cursor-pointer items-center justify-between gap-3 text-xs uppercase tracking-widest text-muted-foreground">
+            <span>
+              demo txs · {txs.length}{" "}
+              <span className="text-[10px] normal-case tracking-normal">
+                (block + hash for testing)
+              </span>
+            </span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                setTxs([]);
+              }}
+              className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] hover:bg-muted"
+            >
+              <Trash2 className="h-3 w-3" />
+              clear
+            </button>
+          </summary>
+          <ul className="mt-2 space-y-1 font-mono text-[11px]">
+            {txs.map((t) => {
+              const tone =
+                t.kind === "nefarious"
+                  ? "text-danger"
+                  : "text-foreground/80";
+              const statusTone =
+                t.status === "confirmed"
+                  ? "text-emerald-500"
+                  : t.status === "failed"
+                    ? "text-danger"
+                    : "text-amber-500";
+              return (
+                <li
+                  key={t.hash}
+                  className="flex items-center gap-2 whitespace-nowrap"
+                >
+                  <span className={tone}>
+                    {t.kind === "nefarious" ? "ATK" : "BEN"}
+                  </span>
+                  <span className={statusTone}>
+                    {t.status === "pending"
+                      ? "…"
+                      : t.status === "confirmed"
+                        ? "✓"
+                        : "✗"}
+                  </span>
+                  <span className="text-muted-foreground">
+                    blk {t.blockNumber?.toString() ?? "—"}
+                  </span>
+                  <span className="truncate" title={t.label}>
+                    {t.label}
+                  </span>
+                  <span className="ml-auto text-muted-foreground">
+                    {t.hash.slice(0, 10)}…{t.hash.slice(-6)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => copy(t.hash)}
+                    className="inline-flex items-center rounded p-0.5 hover:bg-muted"
+                    title="copy full tx hash"
+                  >
+                    <Copy className="h-3 w-3" />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </details>
       )}
     </div>
   );
